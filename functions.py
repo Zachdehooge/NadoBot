@@ -40,7 +40,7 @@ async def getNadoCastData(time: datetime) -> list[str]:
     # Create a list so we can use it back in main.py
     file_list = []
 
-    # Folder Structure, and create the folder if it doesn't exist, but if it does, return the already downloaded folders
+    # Folder Structure, and create the folder if it doesn't exist, but if it does, return the already downloaded images
     folder_location = r"Nadocast\\{1}_{0}_{2}_{3}z".format(day, month, year, timeNow)
     if os.path.exists(folder_location):
         for file in os.listdir(folder_location):

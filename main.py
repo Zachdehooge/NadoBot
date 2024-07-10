@@ -30,11 +30,6 @@ async def getUTC(ctx) -> None:
     await ctx.send(utc_time.strftime("%Y-%m-%d %H:%M:%S"))
 
 
-@client.command(name="test")
-async def test(ctx, *args) -> None:
-    await ctx.send(args[0])
-
-
 @client.command(name="fetch")
 async def fetch(ctx, *args) -> None:
     await ctx.send("Fetching...")
