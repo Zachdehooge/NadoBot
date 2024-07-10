@@ -1,7 +1,8 @@
 import aiohttp
 import os
 from datetime import datetime, timedelta, timezone
-  
+
+#discontinued?
 async def getUTCTime() -> datetime:
     dt = datetime.now(timezone.utc) 
   
