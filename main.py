@@ -32,7 +32,8 @@ async def getUTC(ctx) -> None:
 
 @client.command(name="fetch")
 async def fetch(ctx, *args) -> None:
-    await ctx.send("Fetching...")
+
+    cooldown = cooldowns["fetch"]
 
     allowed_params = ["sig", "tor", "wind", "hail"]
 
@@ -48,8 +49,20 @@ async def fetch(ctx, *args) -> None:
             "Incorrect params! Example of proper commands: \n$fetch sig tor \n$fetch tor"
         )
 
+    # Check if we are in cooldown
+    if cooldown["last_used"] + cooldown["cooldown"] > datetime.now().timestamp():
+        return await ctx.send("Please wait a minute before using this command again!")
+
+    await ctx.send("Fetching... please wait.")
+
     # Fetch data, get our list of images
     result = await getNadoCastData(await getUTCTime())
+    if result == None:
+        await ctx.send(
+            "It appears Nadocast has not put out the new images for this time range! Please try again in a minute."
+        )
+        cooldown["last_used"] = datetime.now().timestamp()
+        return
     # print(result)
     # Send the images
     files = []
@@ -62,11 +75,17 @@ async def fetch(ctx, *args) -> None:
             and args[0] != "None"
             and args[0] in file
             and "sig" not in file
+            and "f02-23" in file
         ):
             files.append(discord.File(file))
             # debug.append(file)
             continue
-        if args[0] == "sig" and args[1] != "None" and f"{args[0]}_{args[1]}" in file:
+        if (
+            args[0] == "sig"
+            and args[1] != "None"
+            and f"{args[0]}_{args[1]}" in file
+            and "f02-23" in file
+        ):
             files.append(discord.File(file))
             # debug.append(file)
             continue

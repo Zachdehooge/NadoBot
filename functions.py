@@ -1,9 +1,10 @@
-import aiohttp
 import os
 from datetime import datetime, timedelta, timezone
 import requests
 from urllib.parse import urljoin
 from bs4 import BeautifulSoup
+
+cooldowns = {"fetch": {"last_used": 0, "cooldown": 60}}
 
 
 # discontinued?
@@ -68,4 +69,11 @@ async def getNadoCastData(time: datetime) -> list[str]:
             f.write(requests.get(urljoin(url, link["href"])).content)
 
     file_list.sort()
+    if len(file_list) == 0:
+        os.rmdir(folder_location)
+        with open("error.log", "a") as f:
+            f.write(
+                f"{datetime.now()} - No images found for {folder_location}. Command locked for 1 minute. Folder deleted. \n"
+            )
+        return None
     return file_list
