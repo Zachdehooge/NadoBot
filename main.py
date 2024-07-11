@@ -69,8 +69,11 @@ async def fetch(ctx, *args) -> None:
     elif 18 <= timeNowInt < 24:
         timeNow = 18
 
+    # This shouldn't trigger, but if it does, something went wrong.
     if result == None:
-        await log(f"Error: No images found for {timeNow}Z, current UTC is {timeNowInt}z.")
+        await log(
+            f"Error: No images found for {timeNow}Z, current UTC is {timeNowInt}z."
+        )
         await ctx.send(
             f"It appears Nadocast has not put out the new images for this time range ({timeNow}z)! Please try again in a minute."
         )
@@ -125,7 +128,7 @@ async def fetch(ctx, *args) -> None:
         elif 18 <= hour < 24:
             hour = 18
         text = f"Sorry! It appears Nadocast hasn't uploaded the images for {timeNow}z, here are {hour}z's instead!"
-        
+
     await ctx.send(text, files=files)
 
 

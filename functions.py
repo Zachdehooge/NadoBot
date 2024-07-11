@@ -83,7 +83,6 @@ async def getNadoCastData(time: datetime) -> list[str]:
             day, month, year, timeNow
         )
 
-    
     if os.path.exists(folder_location) and os.listdir(folder_location) != []:
         for file in os.listdir(folder_location):
             file_list.append(os.path.join(folder_location, file))
@@ -93,7 +92,7 @@ async def getNadoCastData(time: datetime) -> list[str]:
             f"Images for {timeNow}z have already been downloaded, returning them instead of downloading new ones."
         )
         return file_list
-    
+
     response = requests.get(url)
 
     if not os.path.exists(folder_location):
