@@ -91,7 +91,7 @@ async def fetch(ctx, *args) -> None:
             and args[0] != "None"
             and args[0] in file
             and "sig" not in file
-            and "f02-23" in file
+            and ("f02-23" in file or "f02-17" in file)
         ):
             files.append(discord.File(file))
             # debug.append(file)
@@ -100,7 +100,7 @@ async def fetch(ctx, *args) -> None:
             args[0] == "sig"
             and args[1] != "None"
             and f"{args[0]}_{args[1]}" in file
-            and "f02-23" in file
+            and ("f02-23" in file or "f02-17" in file)
         ):
             files.append(discord.File(file))
             # debug.append(file)
