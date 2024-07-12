@@ -54,16 +54,32 @@ async def fetch(ctx, *args) -> None:
         return await ctx.send("Please wait a minute before using this command again!")
 
     await ctx.send("Fetching... please wait.")
-
+    UTC = await getUTCTime()
     # Fetch data, get our list of images
-    result = await getNadoCastData(await getUTCTime())
+    result = await getNadoCastData(UTC)
+
+    timeNow = UTC.strftime("%H")
+    timeNowInt = int(timeNow)
+
+    # Since the data is only available at 0Z, 12Z, 18Z, we need to round the time to the nearest available time
+    if timeNowInt < 13:
+        timeNow = 0
+    elif 13 <= timeNowInt < 18:
+        timeNow = 12
+    elif 18 <= timeNowInt < 24:
+        timeNow = 18
+
+    # This shouldn't trigger, but if it does, something went wrong.
     if result == None:
+        await log(
+            f"Error: No images found for {timeNow}Z, current UTC is {timeNowInt}z."
+        )
         await ctx.send(
-            "It appears Nadocast has not put out the new images for this time range! Please try again in a minute."
+            f"It appears Nadocast has not put out the new images for this time range ({timeNow}z)! Please try again in a minute."
         )
         cooldown["last_used"] = datetime.now().timestamp()
         return
-    # print(result)
+
     # Send the images
     files = []
     # debug = []
@@ -96,7 +112,24 @@ async def fetch(ctx, *args) -> None:
         )
     # debug.sort()
     # await ctx.send(debug)
-    await ctx.send(files=files)
+    text = ""
+
+    if f"{timeNow}z" in result[0]:
+        text = f"Here are the images for {timeNow}z!"
+    else:
+        UTC = UTC - timedelta(hours=6)
+
+        hour = int(UTC.strftime("%H"))
+
+        if hour < 13:
+            hour = 0
+        elif 13 <= hour < 18:
+            hour = 12
+        elif 18 <= hour < 24:
+            hour = 18
+        text = f"Sorry! It appears Nadocast hasn't uploaded the images for {timeNow}z, here are {hour}z's instead!"
+
+    await ctx.send(text, files=files)
 
 
 if type(TOKEN) == type(None):
