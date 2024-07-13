@@ -46,7 +46,15 @@ async def getNadoCastData(time: datetime) -> list[str]:
 
     # Get the html text from the url
 
-    await log(f"Fetching images for {timeNow}z (from {url})")
+    if os.path.exists(folder_location):
+        if os.listdir(folder_location) != []:
+            for file in os.listdir(folder_location):
+                file_list.append(os.path.join(folder_location, file))
+            file_list.sort()
+            await log(f"Images already are up to date for {timeNow}z, returning them.")
+            return file_list
+
+    await log(f"Images out of date, trying to fetch images for {timeNow}z (from {url})")
 
     response = requests.get(url)
 
