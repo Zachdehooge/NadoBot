@@ -4,6 +4,7 @@ from functions import *
 import discord
 import time
 import os
+import json
 
 # Retrive token from .env
 load_dotenv()
@@ -33,8 +34,12 @@ async def getUTC(ctx) -> None:
 @client.command(name="fetch")
 async def fetch(ctx, *args) -> None:
 
+    await log("DEBUG: Fetch command called with args:", ",".join(args))
+
     cooldown = cooldowns["fetch"]
 
+    # TODO: This try/except block is hardcoded with the params, needs fixing + adding the life risk param.
+    # Currently works and is not urgent.
     allowed_params = ["sig", "tor", "wind", "hail"]
 
     # Lets check the args to make sure we should do this request.
@@ -45,9 +50,7 @@ async def fetch(ctx, *args) -> None:
             allowed_params.index(args[1])
 
     except:
-        return await ctx.send(
-            "Incorrect params! Example of proper commands: \n$fetch sig tor \n$fetch tor"
-        )
+        return await ctx.send("Incorrect params! Example of proper commands: \n$fetch sig tor \n$fetch tor")
 
     # Check if we are in cooldown
     if cooldown["last_used"] + cooldown["cooldown"] > datetime.now().timestamp():
@@ -56,63 +59,93 @@ async def fetch(ctx, *args) -> None:
     await ctx.send("Fetching... please wait.")
     UTC = await getUTCTime()
     # Fetch data, get our list of images
-    result = await getNadoCastData(UTC)
+
+    # TODO: if possible, change this to only be called once, and not need the function to pass model/extra. 
+    # this isn't a huge deal, but it would be nice to have it to reduce run time.
+
+    # Our limiter to what models we want to fetch/download
+    model = os.getenv("MODELS")
+    if model == "2024abs":
+        model = "_2024_"
+        extra = "abs"
+    if model == "2024":
+        model = "_2024_"
+        extra = ""
+    if model == "2022abs":
+        model = "_2022_"
+        extra = "absolute"
+    if model == "2022":
+        model = "_2022_"
+        extra = ""
+    # If they leave it blank, we will fetch all models.
+    if model == "":
+        extra = "" 
+
+
+    result = await getNadoCastData(UTC, model, extra)
 
     timeNow = UTC.strftime("%H")
     timeNowInt = int(timeNow)
 
     # Since the data is only available at 0Z, 12Z, 18Z, we need to round the time to the nearest available time
-    if timeNowInt < 13:
+    if timeNowInt < 12:
         timeNow = 0
-    elif 13 <= timeNowInt < 18:
+    elif 12 <= timeNowInt < 18:
         timeNow = 12
     elif 18 <= timeNowInt < 24:
         timeNow = 18
 
     # This shouldn't trigger, but if it does, something went wrong.
     if result == None:
-        await log(
-            f"Error: No images found for {timeNow}Z, current UTC is {timeNowInt}z."
-        )
-        await ctx.send(
-            f"It appears Nadocast has not put out the new images for this time range ({timeNow}z)! Please try again in a minute."
-        )
+        await log(f"Error: No images found for {timeNow}Z, current UTC is {timeNowInt}z.")
+        await ctx.send(f"It appears Nadocast has not put out the new images for this time range ({timeNow}z)! Please try again in a minute.")
         cooldown["last_used"] = datetime.now().timestamp()
         return
 
     # Send the images
     files = []
-    # debug = []
+    file_names = []
+    debug = []
     # print(args)
 
     for file in result:
+        # TODO: Add a case for when the user wants to fetch all images & 
+        # for tor life risk. (This was recently added in the Nadocast website, under 2024 models)
+
+        # Checks if the file is the correct to what the user wants, and if so, adds it to an list to send later.
         if (
             args[0] != "sig"
             and args[0] != "None"
             and args[0] in file
             and "sig" not in file
-            and ("f02-23" in file or "f02-17" in file)
+            and ("f02-23" in file or "f02-17" in file or "f01-17" in file)
         ):
             files.append(discord.File(file))
-            # debug.append(file)
+            # Also for debug (the line below)
+            debug.append(file)
             continue
         if (
             args[0] == "sig"
             and args[1] != "None"
             and f"{args[0]}_{args[1]}" in file
-            and ("f02-23" in file or "f02-17" in file)
+            and ("f02-23" in file or "f02-17" in file or "f01-17" in file)
         ):
             files.append(discord.File(file))
-            # debug.append(file)
+            # Also for debug (the line below)
+            debug.append(file)
             continue
 
+    # This is never triggered, but if it is, something went wrong.
     if len(files) == 0:
-        return await ctx.send(
-            "It appears Nadocast has not put out the new images for this time range! Please try again in a minute."
-        )
-    # debug.sort()
-    # await ctx.send(debug)
+        return await ctx.send("It appears Nadocast has not put out the new images for this time range! Please try again in a minute.")
+    
+    # can be removed, i think, should just be for debugging
+    debug.sort()
+
+    # This text will be displayed in the embed
     text = ""
+    # Default color is green, as it's good
+    hexcode = 0x008000
 
     if f"{timeNow}z" in result[0]:
         text = f"Here are the images for {timeNow}z!"
@@ -121,19 +154,30 @@ async def fetch(ctx, *args) -> None:
 
         hour = int(UTC.strftime("%H"))
 
-        if hour < 13:
+        if hour < 12:
             hour = 0
-        elif 13 <= hour < 18:
+        elif 12 <= hour < 18:
             hour = 12
         elif 18 <= hour < 24:
             hour = 18
-        text = f"Sorry! It appears Nadocast hasn't uploaded the images for {timeNow}z, here are {hour}z's instead!"
+        text = f"Sorry! It appears Nadocast hasn't uploaded the images for {
+            timeNow}z, here are {hour}z's instead!"
+        # Update our hexcode to yellow to note a "warning" that it's not the current time.
+        hexcode = 0xFFFF00
 
-    await ctx.send(text, files=files)
+    embed = discord.Embed(title=f"{"".join(args)}", description=text, color=hexcode)
 
+    # Send the embed then the files (as of right now, files go above embeds... for some reason, so they must be split)
+    await ctx.send(embed=embed)
+    await ctx.send(files=files)
 
-if type(TOKEN) == type(None):
-    print("Please follow the readme to setup the bot!")
+    # Debug for the files we return, uncomment if you want to see the files we are returning in logs/general.log
+    # await log("Files: {\n", "\n".join(debug), "\n}")
 
+# Run the bot
 if __name__ == "__main__":
-    client.run(TOKEN)
+    # if the token is empty, print a message to the console
+    if type(TOKEN) == type(None) or len(TOKEN) == 0:
+        print("Please follow the readme to setup the bot!")
+    else:
+        client.run(TOKEN)

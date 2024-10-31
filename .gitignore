@@ -164,4 +164,5 @@ cython_debug/
 # Nadocast
 Nadocast
 
+# Logs wrote by us
 logs/
