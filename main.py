@@ -4,6 +4,7 @@ from functions import *
 import discord
 import time
 import os
+import json
 
 # Retrive token from .env
 load_dotenv()
@@ -33,6 +34,8 @@ async def getUTC(ctx) -> None:
 @client.command(name="fetch")
 async def fetch(ctx, *args) -> None:
 
+    await log("DEBUG: Fetch command called with args:", ",".join(args))
+
     cooldown = cooldowns["fetch"]
 
     allowed_params = ["sig", "tor", "wind", "hail"]
@@ -45,9 +48,7 @@ async def fetch(ctx, *args) -> None:
             allowed_params.index(args[1])
 
     except:
-        return await ctx.send(
-            "Incorrect params! Example of proper commands: \n$fetch sig tor \n$fetch tor"
-        )
+        return await ctx.send("Incorrect params! Example of proper commands: \n$fetch sig tor \n$fetch tor")
 
     # Check if we are in cooldown
     if cooldown["last_used"] + cooldown["cooldown"] > datetime.now().timestamp():
@@ -56,7 +57,25 @@ async def fetch(ctx, *args) -> None:
     await ctx.send("Fetching... please wait.")
     UTC = await getUTCTime()
     # Fetch data, get our list of images
-    result = await getNadoCastData(UTC)
+
+    model = os.getenv("MODELS")
+    if model == "2024abs":
+        model = "_2024_"
+        extra = "abs"
+    if model == "2024":
+        model = "_2024_"
+        extra = ""
+    if model == "2022abs":
+        model = "_2022_"
+        extra = "absolute"
+    if model == "2022":
+        model = "_2022_"
+        extra = ""
+    if model == "":
+        extra = "" 
+
+
+    result = await getNadoCastData(UTC, model, extra)
 
     timeNow = UTC.strftime("%H")
     timeNowInt = int(timeNow)
@@ -71,18 +90,15 @@ async def fetch(ctx, *args) -> None:
 
     # This shouldn't trigger, but if it does, something went wrong.
     if result == None:
-        await log(
-            f"Error: No images found for {timeNow}Z, current UTC is {timeNowInt}z."
-        )
-        await ctx.send(
-            f"It appears Nadocast has not put out the new images for this time range ({timeNow}z)! Please try again in a minute."
-        )
+        await log(f"Error: No images found for {timeNow}Z, current UTC is {timeNowInt}z.")
+        await ctx.send(f"It appears Nadocast has not put out the new images for this time range ({timeNow}z)! Please try again in a minute.")
         cooldown["last_used"] = datetime.now().timestamp()
         return
 
     # Send the images
     files = []
-    # debug = []
+    file_names = []
+    debug = []
     # print(args)
 
     for file in result:
@@ -91,28 +107,27 @@ async def fetch(ctx, *args) -> None:
             and args[0] != "None"
             and args[0] in file
             and "sig" not in file
-            and ("f02-23" in file or "f02-17" in file)
+            and ("f02-23" in file or "f02-17" in file or "f01-17" in file)
         ):
             files.append(discord.File(file))
-            # debug.append(file)
+            debug.append(file)
             continue
         if (
             args[0] == "sig"
             and args[1] != "None"
             and f"{args[0]}_{args[1]}" in file
-            and ("f02-23" in file or "f02-17" in file)
+            and ("f02-23" in file or "f02-17" in file or "f01-17" in file)
         ):
             files.append(discord.File(file))
-            # debug.append(file)
+            debug.append(file)
             continue
 
     if len(files) == 0:
-        return await ctx.send(
-            "It appears Nadocast has not put out the new images for this time range! Please try again in a minute."
-        )
-    # debug.sort()
+        return await ctx.send("It appears Nadocast has not put out the new images for this time range! Please try again in a minute.")
+    debug.sort()
     # await ctx.send(debug)
     text = ""
+    hexcode = 0x008000
 
     if f"{timeNow}z" in result[0]:
         text = f"Here are the images for {timeNow}z!"
@@ -127,9 +142,14 @@ async def fetch(ctx, *args) -> None:
             hour = 12
         elif 18 <= hour < 24:
             hour = 18
-        text = f"Sorry! It appears Nadocast hasn't uploaded the images for {timeNow}z, here are {hour}z's instead!"
+        text = f"Sorry! It appears Nadocast hasn't uploaded the images for {
+            timeNow}z, here are {hour}z's instead!"
+        hexcode = 0xFFFF00
 
-    await ctx.send(text, files=files)
+    embed = discord.Embed(title=f"{"".join(args)}", description=text, color=hexcode)
+    await ctx.send(embed=embed)
+    await log("Files: {\n", "\n".join(debug), "\n}")
+    await ctx.send(files=files)
 
 
 if type(TOKEN) == type(None):
