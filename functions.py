@@ -18,8 +18,6 @@ async def getUTCTime() -> datetime:
 
 async def getNadoCastData(time: datetime, models: str, extra: str) -> list[str]:
 
-    print("Models:", models, "Extra:", extra)
-
     # Get specific data from the datetime object
     month = time.strftime("%m")
     day = time.strftime("%d")
@@ -109,10 +107,9 @@ async def getNadoCastData(time: datetime, models: str, extra: str) -> list[str]:
 
     # Download the images
     for link in soup.select("a[href$='.png']"):
-        await log(f"Found image: {link['href']}")
+        # await log(f"Found image: {link['href']}")
         # Name the png files using the last portion of each link which are unique in this case
         filename = os.path.join(folder_location, link["href"].split("/")[-1])
-        print(filename, models, extra)
         true_file_name = filename.split("\\")[-1]
 
         if models in true_file_name and extra in true_file_name:
