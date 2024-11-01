@@ -25,6 +25,21 @@ async def on_ready() -> None:
 
 
 # Commands
+
+
+# TODO: Modify the help command to provide descriptions and category title
+class MyHelpCommand(commands.MinimalHelpCommand):
+    async def send_pages(self):
+        destination = self.get_destination()
+        e = discord.Embed(color=discord.Color.blurple(), description="")
+        for page in self.paginator.pages:
+            e.description += page
+        await destination.send(embed=e)
+
+
+client.help_command = MyHelpCommand()
+
+
 @client.command(name="getUTC")
 async def getUTC(ctx) -> None:
     utc_time = await getUTCTime()
@@ -50,7 +65,9 @@ async def fetch(ctx, *args) -> None:
             allowed_params.index(args[1])
 
     except:
-        return await ctx.send("Incorrect params! Example of proper commands: \n$fetch sig tor \n$fetch tor")
+        return await ctx.send(
+            "Incorrect params! Example of proper commands: \n$fetch sig tor \n$fetch tor"
+        )
 
     # Check if we are in cooldown
     if cooldown["last_used"] + cooldown["cooldown"] > datetime.now().timestamp():
@@ -60,7 +77,7 @@ async def fetch(ctx, *args) -> None:
     UTC = await getUTCTime()
     # Fetch data, get our list of images
 
-    # TODO: if possible, change this to only be called once, and not need the function to pass model/extra. 
+    # TODO: if possible, change this to only be called once, and not need the function to pass model/extra.
     # this isn't a huge deal, but it would be nice to have it to reduce run time.
 
     # Our limiter to what models we want to fetch/download
@@ -79,8 +96,7 @@ async def fetch(ctx, *args) -> None:
         extra = ""
     # If they leave it blank, we will fetch all models.
     if model == "":
-        extra = "" 
-
+        extra = ""
 
     result = await getNadoCastData(UTC, model, extra)
 
@@ -97,8 +113,12 @@ async def fetch(ctx, *args) -> None:
 
     # This shouldn't trigger, but if it does, something went wrong.
     if result == None:
-        await log(f"Error: No images found for {timeNow}Z, current UTC is {timeNowInt}z.")
-        await ctx.send(f"It appears Nadocast has not put out the new images for this time range ({timeNow}z)! Please try again in a minute.")
+        await log(
+            f"Error: No images found for {timeNow}Z, current UTC is {timeNowInt}z."
+        )
+        await ctx.send(
+            f"It appears Nadocast has not put out the new images for this time range ({timeNow}z)! Please try again in a minute."
+        )
         cooldown["last_used"] = datetime.now().timestamp()
         return
 
@@ -109,7 +129,7 @@ async def fetch(ctx, *args) -> None:
     # print(args)
 
     for file in result:
-        # TODO: Add a case for when the user wants to fetch all images & 
+        # TODO: Add a case for when the user wants to fetch all images &
         # for tor life risk. (This was recently added in the Nadocast website, under 2024 models)
 
         # Checks if the file is the correct to what the user wants, and if so, adds it to an list to send later.
@@ -137,8 +157,10 @@ async def fetch(ctx, *args) -> None:
 
     # This is never triggered, but if it is, something went wrong.
     if len(files) == 0:
-        return await ctx.send("It appears Nadocast has not put out the new images for this time range! Please try again in a minute.")
-    
+        return await ctx.send(
+            "It appears Nadocast has not put out the new images for this time range! Please try again in a minute."
+        )
+
     # can be removed, i think, should just be for debugging
     debug.sort()
 
@@ -173,6 +195,7 @@ async def fetch(ctx, *args) -> None:
 
     # Debug for the files we return, uncomment if you want to see the files we are returning in logs/general.log
     # await log("Files: {\n", "\n".join(debug), "\n}")
+
 
 # Run the bot
 if __name__ == "__main__":

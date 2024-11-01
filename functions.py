@@ -81,11 +81,17 @@ async def getNadoCastData(time: datetime, models: str, extra: str) -> list[str]:
         elif 18 <= timeNowInt < 24:
             timeNow = 18
 
-        url = "{4}{2}{1}/{2}{1}{0}/t{3}z/".format(day, month, year, timeNow, os.getenv("URL"))
-        await log(f"Previous URL was 404, had to fallback, fetching images for {timeNow}z (from {url})")
+        url = "{4}{2}{1}/{2}{1}{0}/t{3}z/".format(
+            day, month, year, timeNow, os.getenv("URL")
+        )
+        await log(
+            f"Previous URL was 404, had to fallback, fetching images for {timeNow}z (from {url})"
+        )
         await log("DEBUG: ", str(url), str(timeNowInt), str(timeNow))
 
-        folder_location = r"Nadocast\\{1}_{0}_{2}_{3}z".format(day, month, year, timeNow)
+        folder_location = r"Nadocast\\{1}_{0}_{2}_{3}z".format(
+            day, month, year, timeNow
+        )
 
     if os.path.exists(folder_location) and os.listdir(folder_location) != []:
         for file in os.listdir(folder_location):
@@ -93,7 +99,9 @@ async def getNadoCastData(time: datetime, models: str, extra: str) -> list[str]:
                 file_list.append(os.path.join(folder_location, file))
         file_list.sort()
         # await log(f"Images fetched for {timeNow}z: {file_list}")
-        await log(f"Images for {timeNow}z have already been downloaded, returning them instead of downloading new ones.")
+        await log(
+            f"Images for {timeNow}z have already been downloaded, returning them instead of downloading new ones."
+        )
         return file_list
 
     response = requests.get(url)
@@ -129,7 +137,9 @@ async def getNadoCastData(time: datetime, models: str, extra: str) -> list[str]:
     # OLD CODE, KEPT incase this does get triggered, meaning the list is somehow empty when that should not be possible.
     if len(file_list) == 0:
         with open("logs/error.log", "a") as f:
-            f.write(f"{datetime.now()} - No images found for {folder_location}. Command locked for 1 minute. [THIS SHOULD NOT TRIGGER]\n")
+            f.write(
+                f"{datetime.now()} - No images found for {folder_location}. Command locked for 1 minute. [THIS SHOULD NOT TRIGGER]\n"
+            )
         return None
     return file_list
 
