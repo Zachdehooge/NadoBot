@@ -14,7 +14,7 @@ TOKEN: str = os.getenv("TOKEN")
 intents = discord.Intents.default()
 intents.message_content = True
 
-# Create bot client 
+# Create bot client
 client = commands.Bot(command_prefix="$", intents=intents)
 
 
@@ -25,6 +25,21 @@ async def on_ready() -> None:
 
 
 # Commands
+
+
+# TODO: Modify the help command to provide descriptions and category title
+class MyHelpCommand(commands.MinimalHelpCommand):
+    async def send_pages(self):
+        destination = self.get_destination()
+        e = discord.Embed(color=discord.Color.blurple(), description="")
+        for page in self.paginator.pages:
+            e.description += page
+        await destination.send(embed=e)
+
+
+client.help_command = MyHelpCommand()
+
+
 @client.command(name="getUTC")
 async def getUTC(ctx) -> None:
     utc_time = await getUTCTime()
