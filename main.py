@@ -111,6 +111,8 @@ async def fetch(ctx, *args) -> None:
     for file in result:
         # TODO: Add a case for when the user wants to fetch all images &
         # for tor life risk. (This was recently added in the Nadocast website, under 2024 models)
+        # TODO: For some reason, the forecast hours are still changing. This this needs to be created better.
+        # As of today (Nov 3rd, 2024), a new range has been introduced: f12-35, strange.
 
         # Checks if the file is the correct to what the user wants, and if so, adds it to an list to send later.
         if (
@@ -118,7 +120,7 @@ async def fetch(ctx, *args) -> None:
             and args[0] != "None"
             and args[0] in file
             and "sig" not in file
-            and ("f02-23" in file or "f02-17" in file or "f01-17" in file)
+            and ("f02-23" in file or "f02-17" in file or "f01-17" in file or "f12-35" in file)
         ):
             files.append(discord.File(file))
             # Also for debug (the line below)
@@ -128,7 +130,7 @@ async def fetch(ctx, *args) -> None:
             args[0] == "sig"
             and args[1] != "None"
             and f"{args[0]}_{args[1]}" in file
-            and ("f02-23" in file or "f02-17" in file or "f01-17" in file)
+            and ("f02-23" in file or "f02-17" in file or "f01-17" in file or "f12-35" in file)
         ):
             files.append(discord.File(file))
             # Also for debug (the line below)
