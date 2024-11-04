@@ -55,13 +55,13 @@ async def fetch(ctx, *args) -> None:
 
     # TODO: This try/except block is hardcoded with the params, needs fixing + adding the life risk param.
     # Currently works and is not urgent.
-    allowed_params = ["sig", "tor", "wind", "hail"]
+    allowed_params = ["sig", "life", "tor", "wind", "hail"]
 
     # Lets check the args to make sure we should do this request.
     try:
         allowed_params.index(args[0])
 
-        if args[0] == "sig" and args[1] != None:
+        if (args[0] == "sig" or args[0] == "life") and args[1] != None:
             allowed_params.index(args[1])
 
     except:
@@ -77,28 +77,8 @@ async def fetch(ctx, *args) -> None:
     UTC = await getUTCTime()
     # Fetch data, get our list of images
 
-    # TODO: if possible, change this to only be called once, and not need the function to pass model/extra.
-    # this isn't a huge deal, but it would be nice to have it to reduce run time.
-
-    # Our limiter to what models we want to fetch/download
-    model = os.getenv("MODELS")
-    if model == "2024abs":
-        model = "_2024_"
-        extra = "abs"
-    if model == "2024":
-        model = "_2024_"
-        extra = ""
-    if model == "2022abs":
-        model = "_2022_"
-        extra = "absolute"
-    if model == "2022":
-        model = "_2022_"
-        extra = ""
-    # If they leave it blank, we will fetch all models.
-    if model == "":
-        extra = ""
-
-    result = await getNadoCastData(UTC, model, extra)
+    model, extra, doNotInclude = ctx.bot.models.values()
+    result = await getNadoCastData(UTC, model, extra, doNotInclude)
 
     timeNow = UTC.strftime("%H")
     timeNowInt = int(timeNow)
@@ -199,8 +179,38 @@ async def fetch(ctx, *args) -> None:
 
 # Run the bot
 if __name__ == "__main__":
+    if not os.path.exists("logs"):
+        os.makedirs("logs")
     # if the token is empty, print a message to the console
     if type(TOKEN) == type(None) or len(TOKEN) == 0:
         print("Please follow the readme to setup the bot!")
     else:
+
+        # Sets the model and extra from .env and stores it to client.models (ctx.bot.models)
+        model = ""
+        extra = ""
+        model = os.getenv("MODELS")
+        if model == "2024abs":
+            model = "_2024_"
+            extra = "abs"
+            notExtra = "?"
+        if model == "2024":
+            model = "_2024_"
+            extra = ""
+            notExtra = "abs"
+        if model == "2022abs":
+            model = "_2022_"
+            extra = "abs"
+            notExtra = "?"
+        if model == "2022":
+            model = "_2022_"
+            extra = ""
+            notExtra = "abs"
+
+    # If they leave it blank, we will fetch all models.
+        if model == "":
+            extra = ""
+            notExtra = "?"
+        
+        client.models = {"model": model, "extra": extra, "doNotInclude": notExtra}
         client.run(TOKEN)

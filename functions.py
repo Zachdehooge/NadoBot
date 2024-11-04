@@ -7,7 +7,6 @@ from bs4 import BeautifulSoup
 cooldowns = {"fetch": {"last_used": 0, "cooldown": 60}}
 
 
-# discontinued?
 async def getUTCTime() -> datetime:
     dt = datetime.now(timezone.utc)
 
@@ -16,7 +15,9 @@ async def getUTCTime() -> datetime:
     return utc_time
 
 
-async def getNadoCastData(time: datetime, models: str, extra: str) -> list[str]:
+async def getNadoCastData(
+    time: datetime, models: str, extra: str, doNotInclude: str
+) -> list[str]:
 
     # Get specific data from the datetime object
     month = time.strftime("%m")
@@ -50,12 +51,19 @@ async def getNadoCastData(time: datetime, models: str, extra: str) -> list[str]:
         if os.listdir(folder_location) != []:
             for file in os.listdir(folder_location):
                 print(file)
-                if models in file and extra in file:
+                if isAcceptableFile(file, models, extra, doNotInclude):
                     file_list.append(os.path.join(folder_location, file))
 
             file_list.sort()
-            await log(f"Images already are up to date for {timeNow}z, returning them.")
-            return file_list
+            if len(file_list) == 0:
+                await log(
+                    f"Images already are up to date for {timeNow}z, but no images were found, attempting to fetch new images."
+                )
+            else:
+                await log(
+                    f"Images already are up to date for {timeNow}z, returning them."
+                )
+                return file_list
 
     await log(f"Images out of date, trying to fetch images for {timeNow}z (from {url})")
 
@@ -95,14 +103,19 @@ async def getNadoCastData(time: datetime, models: str, extra: str) -> list[str]:
 
     if os.path.exists(folder_location) and os.listdir(folder_location) != []:
         for file in os.listdir(folder_location):
-            if models in file and extra in file:
+            if isAcceptableFile(file, models, extra, doNotInclude):
                 file_list.append(os.path.join(folder_location, file))
         file_list.sort()
         # await log(f"Images fetched for {timeNow}z: {file_list}")
-        await log(
-            f"Images for {timeNow}z have already been downloaded, returning them instead of downloading new ones."
-        )
-        return file_list
+        if len(file_list) == 0:
+            await log(
+                f"Images for {timeNow}z have already been downloaded, but no images were found, attempting to fetch new images."
+            )
+        else:
+            await log(
+                f"Images for {timeNow}z have already been downloaded, returning them instead of downloading new ones."
+            )
+            return file_list
 
     response = requests.get(url)
 
@@ -120,7 +133,7 @@ async def getNadoCastData(time: datetime, models: str, extra: str) -> list[str]:
         filename = os.path.join(folder_location, link["href"].split("/")[-1])
         true_file_name = filename.split("\\")[-1]
 
-        if models in true_file_name and extra in true_file_name:
+        if isAcceptableFile(true_file_name, models, extra, doNotInclude):
             file_list.append(filename)
             with open(filename, "wb") as f:
                 f.write(requests.get(urljoin(url, link["href"])).content)
@@ -145,8 +158,12 @@ async def getNadoCastData(time: datetime, models: str, extra: str) -> list[str]:
 
 
 async def log(*params):
-    if not os.path.exists("logs"):
-        os.makedirs("logs")
     with open("logs/general.log", "a") as f:
         text = " ".join(params)
         f.write(f"{datetime.now()} - {text} \n")
+
+
+def isAcceptableFile(file: str, model: str, extra: str, doNotInclude: str) -> bool:
+    if model in file and extra in file and doNotInclude not in file:
+        return True
+    return False
