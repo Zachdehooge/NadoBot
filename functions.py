@@ -171,6 +171,7 @@ def isAcceptableFile(file: str, model: str, extra: str, doNotInclude: str) -> bo
         return True
     return False
 
+
 def createWeatherEmbed(filePath: str) -> List:
     file = File(filePath, filename="image.png")
 
