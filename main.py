@@ -140,7 +140,6 @@ async def fetch(ctx, *args) -> None:
         # As of today (Nov 3rd, 2024), a new range has been introduced: f12-35, strange.
 
         timeRange = file.split("_")[-1].replace(".png", "")
-        print(timeRange)
 
         # Checks if the file is the correct to what the user wants, and if so, adds it to an list to send later.
         if (
