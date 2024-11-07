@@ -17,6 +17,30 @@ intents.message_content = True
 # Create bot client
 client = commands.Bot(command_prefix="$", intents=intents)
 
+# Dictionary to change the if statements to a more readable format
+models = {
+    "2024": {"model": "_2024_", "extra": "", "notExtra": "abs"},
+    "2024abs": {
+        "model": "_2024_",
+        "extra": "abs",
+        "notExtra": "?",
+    },
+    "2022": {"model": "_2022_", "extra": "", "notExtra": "abs"},
+    "2022abs": {
+        "model": "_2022_",
+        "extra": "abs",
+        "notExtra": "?",
+    },
+    "": {
+        "model": "",
+        "extra": "",
+        "notExtra": "?",
+    },
+}
+
+# Valid time ranges (We can remove this later, but it's good to have for now)
+validD1TimeRanges = ["f01-23", "f02-23", "f02-17", "f01-17", "f12-35"]
+
 
 # Events
 @client.event
@@ -111,8 +135,12 @@ async def fetch(ctx, *args) -> None:
     for file in result:
         # TODO: Add a case for when the user wants to fetch all images &
         # for tor life risk. (This was recently added in the Nadocast website, under 2024 models)
+
         # TODO: For some reason, the forecast hours are still changing. This this needs to be created better.
         # As of today (Nov 3rd, 2024), a new range has been introduced: f12-35, strange.
+
+        timeRange = file.split("_")[-1].replace(".png", "")
+        print(timeRange)
 
         # Checks if the file is the correct to what the user wants, and if so, adds it to an list to send later.
         if (
@@ -120,7 +148,7 @@ async def fetch(ctx, *args) -> None:
             and args[0] != "None"
             and args[0] in file
             and "sig" not in file
-            and ("f01-23" in file or "f02-23" in file or "f02-17" in file or "f01-17" in file or "f12-35" in file)
+            and timeRange in validD1TimeRanges
         ):
             files.append(discord.File(file))
             # Also for debug (the line below)
@@ -130,7 +158,7 @@ async def fetch(ctx, *args) -> None:
             args[0] == "sig"
             and args[1] != "None"
             and f"{args[0]}_{args[1]}" in file
-            and ("f01-23" in file or "f02-23" in file or "f02-17" in file or "f01-17" in file or "f12-35" in file)
+            and timeRange in validD1TimeRanges
         ):
             files.append(discord.File(file))
             # Also for debug (the line below)
@@ -169,11 +197,9 @@ async def fetch(ctx, *args) -> None:
         # Update our hexcode to yellow to note a "warning" that it's not the current time.
         hexcode = 0xFFFF00
 
-    embed = discord.Embed(title=f"{"".join(args)}", description=text, color=hexcode)
+    embed = Embed(title=f"{"".join(args)}", description=text, color=hexcode)
 
-    # Send the embed then the files (as of right now, files go above embeds... for some reason, so they must be split)
-    await ctx.send(embed=embed)
-    await ctx.send(files=files)
+    await ctx.send(embed=embed, files=files)
 
     # Debug for the files we return, uncomment if you want to see the files we are returning in logs/general.log
     # await log("Files: {\n", "\n".join(debug), "\n}")
@@ -191,28 +217,12 @@ if __name__ == "__main__":
         # Sets the model and extra from .env and stores it to client.models (ctx.bot.models)
         model = ""
         extra = ""
-        model = os.getenv("MODELS")
-        if model == "2024abs":
-            model = "_2024_"
-            extra = "abs"
-            notExtra = "?"
-        if model == "2024":
-            model = "_2024_"
-            extra = ""
-            notExtra = "abs"
-        if model == "2022abs":
-            model = "_2022_"
-            extra = "abs"
-            notExtra = "?"
-        if model == "2022":
-            model = "_2022_"
-            extra = ""
-            notExtra = "abs"
+        setModel = os.getenv("MODELS")
+        model = models[f"{setModel}"]["model"]
+        extra = models[f"{setModel}"]["extra"]
+        notExtra = models[f"{setModel}"]["notExtra"]
 
-    # If they leave it blank, we will fetch all models.
-        if model == "":
-            extra = ""
-            notExtra = "?"
-        
+        # If they leave it blank, we will fetch all models.
+
         client.models = {"model": model, "extra": extra, "doNotInclude": notExtra}
         client.run(TOKEN)

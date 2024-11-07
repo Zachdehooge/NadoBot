@@ -3,6 +3,9 @@ from datetime import datetime, timedelta, timezone
 import requests
 from urllib.parse import urljoin
 from bs4 import BeautifulSoup
+from discord import Embed, File
+from typing import List
+
 
 cooldowns = {"fetch": {"last_used": 0, "cooldown": 60}}
 
@@ -22,7 +25,7 @@ async def getNadoCastData(
     # Get specific data from the datetime object
     month = time.strftime("%m")
     day = time.strftime("%d")
-    year = time.strftime("20%y")
+    year = time.strftime("%Y")
     timeNow = time.strftime("%H")
     timeNowInt = int(timeNow)
 
@@ -77,7 +80,7 @@ async def getNadoCastData(
 
         month = time.strftime("%m")
         day = time.strftime("%d")
-        year = time.strftime("20%y")
+        year = time.strftime("%Y")
         timeNow = time.strftime("%H")
         timeNowInt = int(timeNow)
 
@@ -167,3 +170,12 @@ def isAcceptableFile(file: str, model: str, extra: str, doNotInclude: str) -> bo
     if model in file and extra in file and doNotInclude not in file:
         return True
     return False
+
+def createWeatherEmbed(filePath: str) -> List:
+    file = File(filePath, filename="image.png")
+
+    embed = Embed()
+
+    embed.set_image(url="attachment://image.png")
+
+    return [file, embed]
