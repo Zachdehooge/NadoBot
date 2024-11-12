@@ -172,11 +172,15 @@ def isAcceptableFile(file: str, model: str, extra: str, doNotInclude: str) -> bo
     return False
 
 
-def createWeatherEmbed(filePath: str) -> List:
-    file = File(filePath, filename="image.png")
+def createWeatherEmbed(file: File, title: str, description: str, color) -> List:
+    # file = File(filePath, filename="image.png")
 
     embed = Embed()
 
+    embed.title = title
+    embed.description = description
+    embed.color = color
+
     embed.set_image(url="attachment://image.png")
 
-    return [file, embed]
+    return [embed, file]

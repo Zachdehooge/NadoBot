@@ -38,6 +38,12 @@ models = {
     },
 }
 
+abreviations = {
+    "tor": "tornado",
+    "wind": "wind",
+    "hail": "hail",
+}
+
 # Valid time ranges (We can remove this later, but it's good to have for now)
 validD1TimeRanges = ["f01-23", "f02-23", "f02-17", "f01-17", "f12-35"]
 
@@ -132,6 +138,7 @@ async def fetch(ctx, *args) -> None:
     debug = []
     # print(args)
 
+    fileNumber = 0
     for file in result:
         # TODO: Add a case for when the user wants to fetch all images &
         # for tor life risk. (This was recently added in the Nadocast website, under 2024 models)
@@ -142,24 +149,32 @@ async def fetch(ctx, *args) -> None:
         timeRange = file.split("_")[-1].replace(".png", "")
 
         # Checks if the file is the correct to what the user wants, and if so, adds it to an list to send later.
+        acceptableArgs = ["sig", "life", "tor", "wind", "hail"]
+
+        # TODO: This "extras" for a name should really be renamed, alongside other things. But I have not really been thinking of better names.
+        # TL;DR: Change names of variables to something more accurate.
+
+        extras = []
+        notExtra = "sig"
+
+        if args[0] in acceptableArgs:
+            extras = [abreviations[f"{args[0]}"], ""]
+
+        if args[0] == "sig":
+            notExtra = "?"
+
+        try:
+            extras[1] = abreviations[f"{args[1]}"]
+        except Exception as e:
+            pass
+
+        # The list of files to send
         if (
-            args[0] != "sig"
-            and args[0] != "None"
-            and args[0] in file
-            and "sig" not in file
+            f"{extras[0]}_{extras[1]}" in file
             and timeRange in validD1TimeRanges
+            and notExtra not in file
         ):
-            files.append(discord.File(file))
-            # Also for debug (the line below)
-            debug.append(file)
-            continue
-        if (
-            args[0] == "sig"
-            and args[1] != "None"
-            and f"{args[0]}_{args[1]}" in file
-            and timeRange in validD1TimeRanges
-        ):
-            files.append(discord.File(file))
+            files.append(discord.File(file, filename="image.png"))
             # Also for debug (the line below)
             debug.append(file)
             continue
@@ -196,9 +211,11 @@ async def fetch(ctx, *args) -> None:
         # Update our hexcode to yellow to note a "warning" that it's not the current time.
         hexcode = 0xFFFF00
 
-    embed = Embed(title=f"{"".join(args)}", description=text, color=hexcode)
+    embedData = createWeatherEmbed(
+        file=files[0], title=f"{"".join(args)}", description=text, color=hexcode
+    )
 
-    await ctx.send(embed=embed, files=files)
+    await ctx.send(embed=embedData[0], files=[embedData[1]])
 
     # Debug for the files we return, uncomment if you want to see the files we are returning in logs/general.log
     # await log("Files: {\n", "\n".join(debug), "\n}")
