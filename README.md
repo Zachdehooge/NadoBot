@@ -17,7 +17,7 @@
 
 ## Docker Containerization
 
-- In order to run Nadobot through Docker you will need to perform the following
+- In order to run Nadobot through Docker you will need to perform the following from where the `Dockerfile` is located:
 
   - Build the Image: `docker build -t Nadobot .`
   - Run the Container: `docker run -d \ -e TOKEN=your_token_here \ -e URL=http://data.nadocast.com/ \ -e MODELS=your_model_here \ --name Nadobot Nadobot`
