@@ -40,13 +40,13 @@ class MyHelpCommand(commands.MinimalHelpCommand):
 client.help_command = MyHelpCommand()
 
 
-@client.command(name="getUTC", help="Get the current UTC time.")
+@client.command(name="getUTC", help="Gets the current UTC time.")
 async def getUTC(ctx) -> None:
     utc_time = await getUTCTime()
     await ctx.send(utc_time.strftime("%Y-%m-%d %H:%M:%S"))
 
 
-@client.command(name="fetch", help="Fetch the latest Nadocast images. \n Usage: !fetch <param>\nAllowed params: sig, life, tor, wind, hail")
+@client.command(name="fetch", help="Fetch the latest Nadocast images. \n Usage: $fetch <param> \n Allowed params: sig, tor, wind, hail")
 async def fetch(ctx, *args) -> None:
 
     await log("DEBUG: Fetch command called with args:", ",".join(args))
