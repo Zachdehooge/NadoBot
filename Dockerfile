@@ -1,5 +1,5 @@
 # Use an official Python runtime as a parent image
-FROM python:3.13.0
+FROM python:3.12
 
 # Set the working directory in the container
 WORKDIR /app
@@ -14,7 +14,3 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 # Run app.py when the container launches
 CMD ["python3", "main.py"]
-
-
-# To run the application in Docker: docker run -it --rm --name my-running-app my-python-app
-# Reference: https://www.geeksforgeeks.org/setting-up-docker-for-python-projects-a-step-by-step-guide/
