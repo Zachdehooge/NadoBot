@@ -70,13 +70,13 @@ class MyHelpCommand(commands.MinimalHelpCommand):
 client.help_command = MyHelpCommand()
 
 
-@client.command(name="getUTC")
+@client.command(name="getUTC", help="Gets the current UTC time.")
 async def getUTC(ctx) -> None:
     utc_time = await getUTCTime()
     await ctx.send(utc_time.strftime("%Y-%m-%d %H:%M:%S"))
 
 
-@client.command(name="fetch")
+@client.command(name="fetch", help="Fetches the latest Nadocast images. \n Usage: $fetch <params> \n Allowed params: sig, tor, wind, hail\n Examples: `$fetch tor`, `$fetch sig tor`")
 async def fetch(ctx, *args) -> None:
 
     await log("DEBUG: Fetch command called with args:", ",".join(args))
@@ -239,6 +239,9 @@ if __name__ == "__main__":
         notExtra = models[f"{setModel}"]["notExtra"]
 
         # If they leave it blank, we will fetch all models.
+        if model == "":
+            extra = ""
+            notExtra = "?"
 
         client.models = {"model": model, "extra": extra, "doNotInclude": notExtra}
         client.run(TOKEN)
