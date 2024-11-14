@@ -46,7 +46,7 @@ async def getUTC(ctx) -> None:
     await ctx.send(utc_time.strftime("%Y-%m-%d %H:%M:%S"))
 
 
-@client.command(name="fetch", help="Fetch the latest Nadocast images. \n Usage: $fetch <param> \n Allowed params: sig, tor, wind, hail")
+@client.command(name="fetch", help="Fetches the latest Nadocast images. \n Usage: $fetch <params> \n Allowed params: sig, tor, wind, hail\n Examples: `$fetch tor`, `$fetch sig tor`")
 async def fetch(ctx, *args) -> None:
 
     await log("DEBUG: Fetch command called with args:", ",".join(args))
