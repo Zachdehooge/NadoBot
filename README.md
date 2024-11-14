@@ -2,6 +2,7 @@
 
 [![CI/CD Pipeline](https://github.com/Zachdehooge/NadoBot/actions/workflows/CICD.yml/badge.svg)](https://github.com/Zachdehooge/NadoBot/actions/workflows/CICD.yml)
 
+![Alt](https://repobeats.axiom.co/api/embed/33a13497022ac4ec16c0609dfa21f1481cfd4a24.svg "Repobeats analytics image")
 ## Models
 
 - Model declaration can be done under `MODELS` in the `.env` file. Your choices are `2022`, `2022abs`, `2024`, and `2024abs` or you can leave it blank and receive all four of them
