@@ -186,8 +186,6 @@ def createWeatherEmbed(file: File, title: str, description: str, color) -> List:
     return [embed, file]
 
 def forecastOffice(city_state, city_state1) -> str:
-    #city_state = input("Enter City (e.g. Ringgold): ")
-    #city_state1 = input("Enter State (e.g. GA): ")
 
     result = f"{city_state},{city_state1}"
 
