@@ -220,6 +220,8 @@ def forecastOffice(city_state, city_state1) -> str:
     points_data = points_resp.json()
 
     office_url = f"{points_data['properties']['forecastOffice']}"
+
+    office_code = f"{points_data['properties']['cwa']}"
     try:
         office_resp = requests.get(office_url)
         office_resp.raise_for_status()
@@ -230,4 +232,4 @@ def forecastOffice(city_state, city_state1) -> str:
     office_data = office_resp.json()
 
     #print(type(office_data['name']))
-    return office_data['name']
+    return office_data['name'] + " | " + "NWS Website: https://www.weather.gov/" + office_code
