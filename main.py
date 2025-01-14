@@ -154,7 +154,7 @@ async def fetch(ctx, *args) -> None:
 
         timeRange = file.split("_")[-1].replace(".png", "")
 
-        # Checks if the file is the correct to what the user wants, and if so, adds it to an list to send later.
+        # Checks if the file is the correct to what the user wants, and if so, adds it to a list to send later.
         acceptableArgs = ["sig", "life", "tor", "wind", "hail"]
 
         # TODO: This "extras" for a name should really be renamed, alongside other things. But I have not really been thinking of better names.
