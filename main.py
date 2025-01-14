@@ -69,7 +69,7 @@ class MyHelpCommand(commands.MinimalHelpCommand):
 client.help_command = MyHelpCommand()
 
 # Command to fetch the forecast office for a location passed by the user
-@client.command(name="getOffice", help="Retrieves the forecast office for a city")
+@client.command(name="getOffice", help="Retrieves the forecast office for a city. Usage: $getOffice (city) (state abbreviation) (Aurora, CO)")
 async def getOffice(ctx, city_state, city_state1):
     await ctx.send("The NWS Office for " + city_state + ", " + city_state1 + " is: " + forecastOffice(city_state, city_state1))
 
