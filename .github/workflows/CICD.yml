@@ -26,6 +26,7 @@ jobs:
         with:
           sarif_file: snyk.sarif
 
+# Checks the API status to ensure it is 200 OK
   tests:
     name: Unit Tests
     runs-on: ubuntu-latest
@@ -37,7 +38,7 @@ jobs:
           python-version: '3.13'
       - run: |
           pip3 install requests
-          python3 Tests.py
+          python3 tests.py
 
   docker:
     name: Docker

@@ -21,6 +21,7 @@
 
   - Build the Image: `docker build -t Nadobot .`
   - Run the Container: `docker run -d \ -e TOKEN=your_token_here \ -e URL=http://data.nadocast.com/ \ -e MODELS=your_model_here \ --name Nadobot Nadobot`
+    - Alternatively in the Docker GUI, set the envars there before creating the container
 
   - Alternatively
     - Go to Dockerhub on Docker desktop and run the image

@@ -184,3 +184,52 @@ def createWeatherEmbed(file: File, title: str, description: str, color) -> List:
     embed.set_image(url="attachment://image.png")
 
     return [embed, file]
+
+def forecastOffice(city_state, city_state1) -> str:
+
+    result = f"{city_state},{city_state1}"
+
+    base_url = "https://geocode.xyz"
+    params = {
+        "locate": result,
+        "region": "US",
+        "json": "1"
+    }
+
+    req_url = f"{base_url}/?{requests.utils.unquote(requests.compat.urlencode(params))}"
+    try:
+        resp = requests.get(req_url)
+        resp.raise_for_status()
+    except requests.RequestException as err:
+        print("Error:", err)
+        exit()
+
+    geocode_data = resp.json()
+
+    # Uncomment to debug coords being passed
+    # print(f"\nLatitude: {geocode_data['latt']}, Longitude: {geocode_data['longt']}\n")
+
+    points_url = f"https://api.weather.gov/points/{geocode_data['latt']},{geocode_data['longt']}"
+    try:
+        points_resp = requests.get(points_url)
+        points_resp.raise_for_status()
+    except requests.RequestException as err:
+        print("Error:", err)
+        exit()
+
+    points_data = points_resp.json()
+
+    office_url = f"{points_data['properties']['forecastOffice']}"
+
+    office_code = f"{points_data['properties']['cwa']}"
+    try:
+        office_resp = requests.get(office_url)
+        office_resp.raise_for_status()
+    except requests.RequestException as err:
+        print("Error:", err)
+        exit()
+
+    office_data = office_resp.json()
+
+    #print(type(office_data['name']))
+    return office_data['name'] + " | " + "NWS Website: https://www.weather.gov/" + office_code
