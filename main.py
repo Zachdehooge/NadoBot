@@ -66,14 +66,18 @@ class MyHelpCommand(commands.MinimalHelpCommand):
             e.description += page
         await destination.send(embed=e)
 
-
 client.help_command = MyHelpCommand()
 
+# Command to fetch the forecast office for a location passed by the user
+@client.command(name="getOffice", help="Retrieves the forecast office for a city")
+async def getOffice(ctx, city_state, city_state1):
+    await ctx.send("The NWS Office for " + city_state + ", " + city_state1 + " is: " + forecastOffice(city_state, city_state1))
 
 @client.command(name="getUTC", help="Gets the current UTC time.")
 async def getUTC(ctx) -> None:
     utc_time = await getUTCTime()
-    await ctx.send(utc_time.strftime("%Y-%m-%d %H:%M:%S"))
+    await ctx.send(utc_time.strftime("%H:%M %m-%d-%y"))
+
 
 
 @client.command(name="fetch", help="Fetches the latest Nadocast images. \n Usage: $fetch <params> \n Allowed params: sig, tor, wind, hail\n Examples: `$fetch tor`, `$fetch sig tor`")
@@ -87,7 +91,7 @@ async def fetch(ctx, *args) -> None:
     # Currently works and is not urgent.
     allowed_params = ["sig", "life", "tor", "wind", "hail"]
 
-    # Lets check the args to make sure we should do this request.
+    # Let's check the args to make sure we should do this request.
     try:
         allowed_params.index(args[0])
 
@@ -103,7 +107,9 @@ async def fetch(ctx, *args) -> None:
     if cooldown["last_used"] + cooldown["cooldown"] > datetime.now().timestamp():
         return await ctx.send("Please wait a minute before using this command again!")
 
+    utc_time = await getUTCTime()
     await ctx.send("Fetching... please wait.")
+    await ctx.send(f"Current UTC Time: {utc_time.strftime("%H:%M | %m-%d-%y")}")
     UTC = await getUTCTime()
     # Fetch data, get our list of images
 
@@ -122,7 +128,7 @@ async def fetch(ctx, *args) -> None:
         timeNow = 18
 
     # This shouldn't trigger, but if it does, something went wrong.
-    if result == None:
+    if result is None:
         await log(
             f"Error: No images found for {timeNow}Z, current UTC is {timeNowInt}z."
         )
@@ -185,7 +191,7 @@ async def fetch(ctx, *args) -> None:
             "It appears Nadocast has not put out the new images for this time range! Please try again in a minute."
         )
 
-    # can be removed, i think, should just be for debugging
+    # can be removed, I think, should just be for debugging
     debug.sort()
 
     # This text will be displayed in the embed
