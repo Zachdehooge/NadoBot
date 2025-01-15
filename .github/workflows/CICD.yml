@@ -37,7 +37,7 @@ jobs:
           python-version: '3.13'
       - run: |
           pip3 install requests
-          python3 Tests.py
+          python3 tests.py
 
   docker:
     name: Docker
