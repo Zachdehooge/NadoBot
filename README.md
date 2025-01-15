@@ -19,7 +19,9 @@
 
 - In order to run Nadobot through Docker you will need to perform the following from where the `Dockerfile` is located:
 
+  - Clone the repo and cd into the directory
   - Build the Image: `docker build -t Nadobot .`
+  - Set envars in the `.env` file
   - Run the Container: `docker run -d \ -e TOKEN=your_token_here \ -e URL=http://data.nadocast.com/ \ -e MODELS=your_model_here \ --name Nadobot Nadobot`
 
   - Alternatively
