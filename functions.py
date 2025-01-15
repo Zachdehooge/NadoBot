@@ -185,6 +185,7 @@ def createWeatherEmbed(file: File, title: str, description: str, color) -> List:
 
     return [embed, file]
 
+# TODO: Ability to pass 2 words to first arg
 def forecastOffice(city_state, city_state1) -> str:
 
     result = f"{city_state},{city_state1}"
