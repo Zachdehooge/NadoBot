@@ -24,9 +24,9 @@
   - Set envars in the `.env` file
   - Run the Container: `docker run -d \ -e TOKEN=your_token_here \ -e URL=http://data.nadocast.com/ \ -e MODELS=your_model_here \ --name Nadobot Nadobot`
 
-  - Alternatively
-    - Go to Dockerhub on Docker desktop and run the image
-    - You will add three environement variables when prompted:
-      - `TOKEN` with the value being your discord bot token
-      - `URL` with the value being `http://data.nadocast.com/`
-      - `MODELS` (can be left blank)
+- Alternatively
+  - Go to Dockerhub on Docker desktop and run the image
+  - You will add three environement variables when prompted:
+    - `TOKEN` with the value being your discord bot token
+    - `URL` with the value being `http://data.nadocast.com/`
+    - `MODELS` (can be left blank)
