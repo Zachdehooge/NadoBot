@@ -31,9 +31,9 @@ jobs:
     name: Bandit Python SAST
     runs-on: ubuntu-latest
     steps:
-      run: |
-        pip3 install bandit
-        bandit ./*
+      - run: |
+          pip3 install bandit
+          bandit ./*
 
 # Checks the API status to ensure it is 200 OK
   tests:
