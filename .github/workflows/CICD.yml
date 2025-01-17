@@ -39,7 +39,7 @@ jobs:
   tests:
     name: API Test
     runs-on: ubuntu-latest
-    needs: snyk, bandit
+    needs: [snyk, bandit]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
