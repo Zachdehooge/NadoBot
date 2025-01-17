@@ -10,6 +10,7 @@ on:
 
 jobs:
   snyk:
+    name: Snyk SAST
     permissions: write-all
     runs-on: ubuntu-latest
     steps:
@@ -25,6 +26,14 @@ jobs:
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: snyk.sarif
+
+  bandit:
+    name: Bandit Python SAST
+    runs-on: ubuntu-latest
+    steps:
+      run: |
+        pip3 install bandit
+        bandit ./*
 
 # Checks the API status to ensure it is 200 OK
   tests:
