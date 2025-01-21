@@ -13,7 +13,14 @@
 - After cloning the repo run `pip install -r requirements.txt` to install the dependencies for this repo
 - Rename the file called `example.env` to `.env` and put your discord bot token next to `TOKEN=`
 
-* Any questions feel free to open a discussion or issue!
+- Any questions feel free to open a discussion or issue!
+
+## Build From Source
+
+ - `git clone https://github.com/Zachdehooge/NadoBot.git`
+ - cd into the cloned directory and run`python -m venv venv`
+ - Ensure Discord is running
+ - Run `python3 main.py`
 
 ## Docker Containerization
 
