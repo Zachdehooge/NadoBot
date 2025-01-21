@@ -253,7 +253,7 @@ def forecast(*args) -> str:
         resp.raise_for_status()
     except requests.RequestException as err:
         print("Error:", err)
-        exit()
+        return "Something went wrong. Please try again."
 
     geocode_data = resp.json()
 
