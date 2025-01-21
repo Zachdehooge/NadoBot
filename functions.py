@@ -282,5 +282,5 @@ def forecast(*args) -> str:
 
     # Iterate through the periods in the forecast data
     for period in forecast_data['properties']['periods']:
-
+        #print(f"{period['name']}: {period['temperature']}°F, {period['shortForecast']}")
         return f"{period['name']}: {period['temperature']}°F, {period['shortForecast']}"
