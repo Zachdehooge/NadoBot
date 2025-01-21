@@ -216,7 +216,7 @@ def forecastOffice(*args) -> str:
         points_resp.raise_for_status()
     except requests.RequestException as err:
         print("Error:", err)
-        exit()
+        return "There was an error processing the supplied location, please try again in a moment"
 
     points_data = points_resp.json()
 
@@ -228,9 +228,10 @@ def forecastOffice(*args) -> str:
         office_resp.raise_for_status()
     except requests.RequestException as err:
         print("Error:", err)
-        exit()
+        return "There was an error finding the forecast office, please try again in a moment"
 
     office_data = office_resp.json()
 
     #print(type(office_data['name']))
     return office_data['name'] + " | " + "NWS Website: https://www.weather.gov/" + office_code
+
