@@ -75,3 +75,19 @@ jobs:
         run: |
           docker tag nadobot ${{ secrets.DOCKER_USERNAME }}/nadobot
           docker push ${{ secrets.DOCKER_USERNAME }}/nadobot
+
+  imagesecurity:
+    name: Image Security Check
+    runs-on: ubuntu-latest
+    needs: docker
+    steps:
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Trivy Scan
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin v0.58.2
+          docker pull zachdehooge/nadobot
+          trivy image zachdehooge/nadobot:latest
