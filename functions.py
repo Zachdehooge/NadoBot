@@ -185,9 +185,10 @@ def createWeatherEmbed(file: File, title: str, description: str, color) -> List:
 
     return [embed, file]
 
-def forecastOffice(city_state, city_state1) -> str:
 
-    result = f"{city_state},{city_state1}"
+def forecastOffice(*args) -> str:
+
+    result = f"{args}"
 
     base_url = "https://geocode.xyz"
     params = {

@@ -57,7 +57,7 @@ async def on_ready() -> None:
 # Commands
 
 
-# TODO: Modify the help command to provide descriptions and category title
+# TODO: Modify the help command to provide descriptions and category title through an embed
 class MyHelpCommand(commands.MinimalHelpCommand):
     async def send_pages(self):
         destination = self.get_destination()
@@ -69,9 +69,11 @@ class MyHelpCommand(commands.MinimalHelpCommand):
 client.help_command = MyHelpCommand()
 
 # Command to fetch the forecast office for a location passed by the user
+# TODO: Handle multi-word cities
+
 @client.command(name="getOffice", help="Retrieves the forecast office for a city. Usage: $getOffice (city) (state abbreviation) (Aurora, CO)")
-async def getOffice(ctx, city_state, city_state1):
-    await ctx.send("The NWS Office for " + city_state + ", " + city_state1 + " is: " + forecastOffice(city_state, city_state1))
+async def getOffice(ctx, *args):
+    await ctx.send("The NWS Office for " + ' '.join(args) + " is: " + forecastOffice(' '.join(args)))
 
 @client.command(name="getUTC", help="Gets the current UTC time.")
 async def getUTC(ctx) -> None:
