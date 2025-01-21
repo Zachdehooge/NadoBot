@@ -235,3 +235,52 @@ def forecastOffice(*args) -> str:
     #print(type(office_data['name']))
     return office_data['name'] + " | " + "NWS Website: https://www.weather.gov/" + office_code
 
+def forecast(*args) -> str:
+    # TODO: Make the data that returns for the forecast, come back in an embed so there are multiple days of forecast data and not just the current
+
+    result = f"{args}"
+
+    base_url = "https://geocode.xyz"
+    params = {
+        "locate": result,
+        "region": "US",
+        "json": "1"
+    }
+
+    req_url = f"{base_url}/?{requests.utils.unquote(requests.compat.urlencode(params))}"
+    try:
+        resp = requests.get(req_url)
+        resp.raise_for_status()
+    except requests.RequestException as err:
+        print("Error:", err)
+        exit()
+
+    geocode_data = resp.json()
+
+    # Uncomment to debug coords being passed
+    # print(f"\nLatitude: {geocode_data['latt']}, Longitude: {geocode_data['longt']}\n")
+
+    points_url = f"https://api.weather.gov/points/{geocode_data['latt']},{geocode_data['longt']}"
+    try:
+        points_resp = requests.get(points_url)
+        points_resp.raise_for_status()
+    except requests.RequestException as err:
+        print("Error:", err)
+        return "There was an error processing the supplied location, please try again in a moment"
+
+    points_data = points_resp.json()
+
+    forecast_url = f"{points_data['properties']['forecast']}"
+
+    try:
+        forecast_resp = requests.get(forecast_url)
+        forecast_resp.raise_for_status()  # Raise an exception for HTTP errors
+    except requests.RequestException as err:
+        print("Error:", err)
+
+    forecast_data = forecast_resp.json()
+
+    # Iterate through the periods in the forecast data
+    for period in forecast_data['properties']['periods']:
+
+        return f"{period['name']}: {period['temperature']}°F, {period['shortForecast']}"

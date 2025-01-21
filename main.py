@@ -71,9 +71,13 @@ client.help_command = MyHelpCommand()
 # Command to fetch the forecast office for a location passed by the user
 # TODO: Handle multi-word cities
 
-@client.command(name="getoffice", help="Retrieves the forecast office for a city. Usage: $getOffice (city) (state abbreviation) (Las Vegas NV)")
+@client.command(name="getoffice", help="Retrieves the forecast office for a city. Usage: $getoffice (city) (state abbreviation) (Las Vegas NV)")
 async def getoffice(ctx, *args):
     await ctx.send("The NWS Office for " + ' '.join(args) + " is: " + forecastOffice(' '.join(args)))
+
+@client.command(name="getconditions", help="Retrieves the current conditions for a city. Usage: $getforecast (city) (state abbreviation) (Las Vegas NV)")
+async def getoffice(ctx, *args):
+    await ctx.send(forecast(' '.join(args)))
 
 @client.command(name="getUTC", help="Gets the current UTC time.")
 async def getUTC(ctx) -> None:
