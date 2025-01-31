@@ -4,10 +4,11 @@ import requests
 from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 from discord import Embed, File
-from typing import List
-
+from typing import List, Dict
+from main2 import DEBUG, getCurrentModel, getActiveImages
 
 cooldowns = {"fetch": {"last_used": 0, "cooldown": 60}}
+__currentModel = {}
 
 
 async def getUTCTime() -> datetime:
@@ -18,9 +19,15 @@ async def getUTCTime() -> datetime:
     return utc_time
 
 
-async def getNadoCastData(
-    time: datetime, models: str, extra: str, doNotInclude: str
-) -> list[str]:
+async def getNadocastData() -> list[str]:
+    __currentModel = getCurrentModel()
+    print(__currentModel)
+    activeImages = getActiveImages()
+
+    time = await getUTCTime()
+    print(__currentModel)
+
+    model, extra, doNotInclude = __currentModel.values()
 
     # Get specific data from the datetime object
     month = time.strftime("%m")
@@ -53,8 +60,8 @@ async def getNadoCastData(
     if os.path.exists(folder_location):
         if os.listdir(folder_location) != []:
             for file in os.listdir(folder_location):
-                print(file)
-                if isAcceptableFile(file, models, extra, doNotInclude):
+                #print(file)
+                if isAcceptableFile(file, model, extra, doNotInclude):
                     file_list.append(os.path.join(folder_location, file))
 
             file_list.sort()
@@ -76,7 +83,7 @@ async def getNadoCastData(
     if response.status_code != 200:
         # Create fallback
 
-        time = time - timedelta(hours=6)
+        time = getTimeDifference(time, 6)
 
         month = time.strftime("%m")
         day = time.strftime("%d")
@@ -106,7 +113,7 @@ async def getNadoCastData(
 
     if os.path.exists(folder_location) and os.listdir(folder_location) != []:
         for file in os.listdir(folder_location):
-            if isAcceptableFile(file, models, extra, doNotInclude):
+            if isAcceptableFile(file, model, extra, doNotInclude):
                 file_list.append(os.path.join(folder_location, file))
         file_list.sort()
         # await log(f"Images fetched for {timeNow}z: {file_list}")
@@ -136,7 +143,7 @@ async def getNadoCastData(
         filename = os.path.join(folder_location, link["href"].split("/")[-1])
         true_file_name = filename.split("\\")[-1]
 
-        if isAcceptableFile(true_file_name, models, extra, doNotInclude):
+        if isAcceptableFile(true_file_name, model, extra, doNotInclude):
             file_list.append(filename)
             with open(filename, "wb") as f:
                 f.write(requests.get(urljoin(url, link["href"])).content)
@@ -161,6 +168,9 @@ async def getNadoCastData(
 
 
 async def log(*params):
+    if not DEBUG:
+        return
+    
     with open("logs/general.log", "a") as f:
         text = " ".join(params)
         f.write(f"{datetime.now()} - {text} \n")
@@ -172,7 +182,7 @@ def isAcceptableFile(file: str, model: str, extra: str, doNotInclude: str) -> bo
     return False
 
 
-def createWeatherEmbed(file: File, title: str, description: str, color) -> List:
+def createWeatherEmbed(files: list, title: str, description: str, color) -> List:
     # file = File(filePath, filename="image.png")
 
     embed = Embed()
@@ -181,14 +191,57 @@ def createWeatherEmbed(file: File, title: str, description: str, color) -> List:
     embed.description = description
     embed.color = color
 
-    embed.set_image(url="attachment://image.png")
+    embed.set_footer(text="Image 0")
 
-    return [embed, file]
+    buttons = [
+        {
+            "type": 2,
+            "label": "Previous",
+            "style": 1,
+            "custom_id": "previous_image"
+        },
+        {
+            "type": 2,
+            "label": "Next",
+            "style": 1,
+            "custom_id": "next_image"
+        }
+    ]
+
+    return [embed, [files], buttons]
 
 
-def forecastOffice(*args) -> str:
+# Get's the time and returns the datetime object and the difference, if any.
+def getTimeDifference(time: datetime, hours: int = 0) -> datetime:
+    
+    try: 
+        hours = int(hours)
+    except ValueError:
+        hours = 0
 
-    result = f"{args}"
+    time = time - timedelta(hours=hours)
+    return time
+
+def getTimeData(time: datetime) -> Dict:
+    month = time.strftime("%m")
+    day = time.strftime("%d")
+    year = time.strftime("%Y")
+    timeNow = time.strftime("%H")
+    timeNowInt = int(timeNow)
+
+    if timeNowInt < 13:
+        timeNow = 0
+    elif 13 <= timeNowInt < 18:
+        timeNow = 12
+    elif 18 <= timeNowInt < 24:
+        timeNow = 18
+
+    return {"month": month, "day": day, "year": year, "timeNow": timeNow, "timeNowInt": timeNowInt}
+
+# TODO: Ability to pass 2 words to first arg
+def forecastOffice(city_state, city_state1) -> str:
+
+    result = f"{city_state},{city_state1}"
 
     base_url = "https://geocode.xyz"
     params = {
@@ -216,7 +269,7 @@ def forecastOffice(*args) -> str:
         points_resp.raise_for_status()
     except requests.RequestException as err:
         print("Error:", err)
-        return "There was an error processing the supplied location, please try again in a moment"
+        exit()
 
     points_data = points_resp.json()
 
@@ -228,7 +281,7 @@ def forecastOffice(*args) -> str:
         office_resp.raise_for_status()
     except requests.RequestException as err:
         print("Error:", err)
-        return "There was an error finding the forecast office, please try again in a moment"
+        exit()
 
     office_data = office_resp.json()
 
