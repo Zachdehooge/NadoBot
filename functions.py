@@ -47,7 +47,7 @@ async def getNadoCastData(
     file_list = []
 
     # Folder Structure, and create the folder if it doesn't exist, but if it does, return the already downloaded images
-    folder_location = r"Nadocast"
+    folder_location = f"Nadocast_{timeNow}"
 
     # Get the html text from the url
 
@@ -101,9 +101,7 @@ async def getNadoCastData(
         )
         await log("DEBUG: ", str(url), str(timeNowInt), str(timeNow))
 
-        folder_location = r"Nadocast\\{1}_{0}_{2}_{3}z".format(
-            day, month, year, timeNow
-        )
+        folder_location = f"Nadocast_{timeNow}"
 
     if os.path.exists(folder_location) and os.listdir(folder_location) != []:
         for file in os.listdir(folder_location):
@@ -172,7 +170,8 @@ def isAcceptableFile(file: str, model: str, extra: str, doNotInclude: str) -> bo
         return True
     return False
 
-def removeFolder():
+# TODO: Create a function to check using the timenow if else statement above to check that this is the current run, if not, remove that folder and download the current run
+def checkFolder():
     try:
         shutil.rmtree("Nadocast")
     except OSError as e:

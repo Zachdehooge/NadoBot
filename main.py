@@ -226,7 +226,8 @@ async def fetch(ctx, *args) -> None:
     await ctx.send(embed=embedData[0], files=[embedData[1]])
 
     await log("Removing Nadocast Folder")
-    removeFolder()
+    checkFolder()
+    
     # Debug for the files we return, uncomment if you want to see the files we are returning in logs/general.log
     # await log("Files: {\n", "\n".join(debug), "\n}")
 
