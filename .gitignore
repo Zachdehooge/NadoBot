@@ -166,3 +166,4 @@ Nadocast
 
 # Logs wrote by us
 logs/
+*.png
