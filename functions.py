@@ -1,5 +1,5 @@
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 import shutil
 import requests
 from urllib.parse import urljoin
@@ -172,10 +172,28 @@ def isAcceptableFile(file: str, model: str, extra: str, doNotInclude: str) -> bo
 
 # TODO: Create a function to check using the timenow if else statement above to check that this is the current run, if not, remove that folder and download the current run
 def checkFolder():
-    try:
-        shutil.rmtree("Nadocast")
-    except OSError as e:
-        print("Error: %s - %s." % (e.filename, e.strerror))
+    time = datetime.now()
+    timeNow = time.strftime("%H")
+    timeNowInt = int(timeNow)
+
+    if timeNowInt < 13:
+        #timeNow = 0
+        timeNow = 12
+        shutil.rmtree(f"Nadocast_{timeNow}")
+        timeNow = 18
+        shutil.rmtree(f"Nadocast_{timeNow}")
+    elif 13 <= timeNowInt < 18:
+        #timeNow = 12
+        timeNow = 0
+        shutil.rmtree(f"Nadocast_{timeNow}")
+        timeNow = 18
+        shutil.rmtree(f"Nadocast_{timeNow}")
+    elif 18 <= timeNowInt < 24:
+        #timeNow = 18
+        timeNow = 12
+        shutil.rmtree(f"Nadocast_{timeNow}")
+        timeNow = 0
+        shutil.rmtree(f"Nadocast_{timeNow}")
 
 def createWeatherEmbed(file: File, title: str, description: str, color) -> List:
     # file = File(filePath, filename="image.png")
