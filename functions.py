@@ -170,8 +170,7 @@ def isAcceptableFile(file: str, model: str, extra: str, doNotInclude: str) -> bo
         return True
     return False
 
-# TODO: Create a function to check using the timenow if else statement above to check that this is the current run, if not, remove that folder and download the current run
-def checkFolder():
+def checkOldFolders():
     time = datetime.now()
     timeNow = time.strftime("%H")
     timeNowInt = int(timeNow)
