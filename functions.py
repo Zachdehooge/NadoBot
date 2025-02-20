@@ -1,5 +1,6 @@
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
+import shutil
 import requests
 from urllib.parse import urljoin
 from bs4 import BeautifulSoup
@@ -46,7 +47,7 @@ async def getNadoCastData(
     file_list = []
 
     # Folder Structure, and create the folder if it doesn't exist, but if it does, return the already downloaded images
-    folder_location = r"Nadocast\\{1}_{0}_{2}_{3}z".format(day, month, year, timeNow)
+    folder_location = f"Nadocast_{timeNow}"
 
     # Get the html text from the url
 
@@ -100,9 +101,7 @@ async def getNadoCastData(
         )
         await log("DEBUG: ", str(url), str(timeNowInt), str(timeNow))
 
-        folder_location = r"Nadocast\\{1}_{0}_{2}_{3}z".format(
-            day, month, year, timeNow
-        )
+        folder_location = f"Nadocast_{timeNow}"
 
     if os.path.exists(folder_location) and os.listdir(folder_location) != []:
         for file in os.listdir(folder_location):
@@ -171,6 +170,29 @@ def isAcceptableFile(file: str, model: str, extra: str, doNotInclude: str) -> bo
         return True
     return False
 
+def checkOldFolders():
+    time = datetime.now()
+    timeNow = time.strftime("%H")
+    timeNowInt = int(timeNow)
+
+    if timeNowInt < 13:
+        #timeNow = 0
+        timeNow = 12
+        shutil.rmtree(f"Nadocast_{timeNow}")
+        timeNow = 18
+        shutil.rmtree(f"Nadocast_{timeNow}")
+    elif 13 <= timeNowInt < 18:
+        #timeNow = 12
+        timeNow = 0
+        shutil.rmtree(f"Nadocast_{timeNow}")
+        timeNow = 18
+        shutil.rmtree(f"Nadocast_{timeNow}")
+    elif 18 <= timeNowInt < 24:
+        #timeNow = 18
+        timeNow = 12
+        shutil.rmtree(f"Nadocast_{timeNow}")
+        timeNow = 0
+        shutil.rmtree(f"Nadocast_{timeNow}")
 
 def createWeatherEmbed(file: File, title: str, description: str, color) -> List:
     # file = File(filePath, filename="image.png")
