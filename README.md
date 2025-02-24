@@ -13,6 +13,12 @@
  - `git clone https://github.com/Zachdehooge/NadoBot.git`
  - cd into the cloned directory and run`python -m venv venv`
  - Ensure Discord is running
+ - Create a bot at: https://discord.com/developers/applications
+ - Click on the bot you created -> Bot -> Copy token
+ - Set envars in the `.env` file
+    - `TOKEN` with the value being your discord bot token
+    - `URL` with the value being `http://data.nadocast.com/`
+    - `MODELS` (can be left blank)
  - Run `python3 main.py`
 
 ## Docker Containerization
@@ -21,10 +27,6 @@
 
   - Clone the repo and cd into the directory
   - Build the Image: `docker build -t Nadobot .`
-  - Set envars in the `.env` file
-    - `TOKEN` with the value being your discord bot token
-    - `URL` with the value being `http://data.nadocast.com/`
-    - `MODELS` (can be left blank)
   - Run the Container: `docker run -d \ -e TOKEN=your_token_here \ -e URL=http://data.nadocast.com/ \ -e MODELS=your_model_here \ --name Nadobot Nadobot`
     - Alternatively in the Docker GUI, set the envars there before creating the container
 
