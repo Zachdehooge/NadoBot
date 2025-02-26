@@ -1,12 +1,17 @@
 name: Format Python Code
 
 on:
+  push:
+    branches:
+      - main
   pull_request:
     branches: [ main ]  # Adjust branch as needed
 
 jobs:
   format:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     
     steps:
     - uses: actions/checkout@v3
