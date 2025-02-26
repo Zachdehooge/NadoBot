@@ -66,14 +66,25 @@ class MyHelpCommand(commands.MinimalHelpCommand):
             e.description += page
         await destination.send(embed=e)
 
+
 client.help_command = MyHelpCommand()
 
 # Command to fetch the forecast office for a location passed by the user
 # TODO: Handle multi-word cities
 
-@client.command(name="getoffice", help="Retrieves the forecast office for a city. Usage: $getOffice (city) (state abbreviation) (Las Vegas NV)")
+
+@client.command(
+    name="getoffice",
+    help="Retrieves the forecast office for a city. Usage: $getOffice (city) (state abbreviation) (Las Vegas NV)",
+)
 async def getoffice(ctx, *args):
-    await ctx.send("The NWS Office for " + ' '.join(args) + " is: " + forecastOffice(' '.join(args)))
+    await ctx.send(
+        "The NWS Office for "
+        + " ".join(args)
+        + " is: "
+        + forecastOffice(" ".join(args))
+    )
+
 
 @client.command(name="getUTC", help="Gets the current UTC time.")
 async def getUTC(ctx) -> None:
@@ -81,8 +92,10 @@ async def getUTC(ctx) -> None:
     await ctx.send(utc_time.strftime("%H:%M %m-%d-%y"))
 
 
-
-@client.command(name="fetch", help="Fetches the latest Nadocast images. \n Usage: $fetch <params> \n Allowed params: sig, tor, wind, hail\n Examples: `$fetch tor`, `$fetch sig tor`")
+@client.command(
+    name="fetch",
+    help="Fetches the latest Nadocast images. \n Usage: $fetch <params> \n Allowed params: sig, tor, wind, hail\n Examples: `$fetch tor`, `$fetch sig tor`",
+)
 async def fetch(ctx, *args) -> None:
 
     await log("DEBUG: Fetch command called with args:", ",".join(args))
@@ -227,7 +240,7 @@ async def fetch(ctx, *args) -> None:
 
     await log("Removing Nadocast Folder")
     checkOldFolders()
-    
+
     # Debug for the files we return, uncomment if you want to see the files we are returning in logs/general.log
     # await log("Files: {\n", "\n".join(debug), "\n}")
 
