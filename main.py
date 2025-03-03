@@ -69,7 +69,6 @@ class MyHelpCommand(commands.MinimalHelpCommand):
 client.help_command = MyHelpCommand()
 
 # Command to fetch the forecast office for a location passed by the user
-# TODO: Handle multi-word cities
 
 @client.command(name="getoffice", help="Retrieves the forecast office for a city. Usage: $getOffice (city) (state abbreviation) (Las Vegas NV)")
 async def getoffice(ctx, *args):
