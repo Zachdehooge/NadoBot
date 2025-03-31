@@ -89,6 +89,7 @@ async def getoffice(ctx, *args):
         + forecastOffice(" ".join(args))
     )
 
+
 def fetch_json_data(url):
     try:
         response = requests.get(url)
@@ -97,10 +98,12 @@ def fetch_json_data(url):
     except requests.RequestException as e:
         return {"error": str(e)}
 
+
 def parse_utc_date(utc_date_str):
     """Parse UTC date string to datetime object with UTC timezone"""
-    parsed_date = datetime.fromisoformat(utc_date_str.replace('Z', '+00:00'))
+    parsed_date = datetime.fromisoformat(utc_date_str.replace("Z", "+00:00"))
     return parsed_date.replace(tzinfo=pytz.UTC)
+
 
 def format_utc_date(utc_date_str):
     """Convert UTC ISO format date to a more readable format in local time"""
@@ -109,13 +112,16 @@ def format_utc_date(utc_date_str):
     local_date = utc_date.astimezone(local_tz)
     return local_date.strftime("%B %d, %Y at %I:%M %p %Z")
 
-def filter_outlooks_by_time_range(outlooks, start_date=None, end_date=None, threshold=None):
+
+def filter_outlooks_by_time_range(
+    outlooks, start_date=None, end_date=None, threshold=None
+):
     """Filter outlooks based on time range and optional threshold"""
     filtered_outlooks = []
 
     for outlook in outlooks:
         # Parse the UTC issue date (already timezone-aware)
-        issue_date = parse_utc_date(outlook['utc_issue'])
+        issue_date = parse_utc_date(outlook["utc_issue"])
 
         # Check date range
         date_in_range = True
@@ -125,7 +131,7 @@ def filter_outlooks_by_time_range(outlooks, start_date=None, end_date=None, thre
             date_in_range = date_in_range and issue_date <= end_date
 
         # Check threshold if specified
-        threshold_match = not threshold or outlook['threshold'] == threshold
+        threshold_match = not threshold or outlook["threshold"] == threshold
 
         # Add to filtered list if both conditions are met
         if date_in_range and threshold_match:
@@ -144,13 +150,18 @@ def create_formatted_table(data, headers):
         for i in range(len(row)):
             # Check if this cell contains a date with timezone at the end
             cell_str = str(row[i])
-            if " EDT" in cell_str or " EST" in cell_str or " PDT" in cell_str or " PST" in cell_str:
+            if (
+                " EDT" in cell_str
+                or " EST" in cell_str
+                or " PDT" in cell_str
+                or " PST" in cell_str
+            ):
                 # Replace the full timezone with a shorter version
                 # For example: "March 30, 2025, at 01:15 PM EDT" -> "Mar 30, 2025 01:15PM ET"
                 parts = cell_str.split()
                 if len(parts) >= 7:  # Make sure it's the expected format
                     month = parts[0][:3]  # Abbreviate month name
-                    day = parts[1].rstrip(',')
+                    day = parts[1].rstrip(",")
                     year = parts[2]
                     time = parts[4]
                     ampm = parts[5]
@@ -163,22 +174,32 @@ def create_formatted_table(data, headers):
         col_widths[i] = max(col_widths[i], len(header))
 
     # Create the header row with proper alignment
-    header_row = ' | '.join(h.ljust(col_widths[i]) for i, h in enumerate(headers))
-    separator = '-+-'.join('-' * w for w in col_widths)
+    header_row = " | ".join(h.ljust(col_widths[i]) for i, h in enumerate(headers))
+    separator = "-+-".join("-" * w for w in col_widths)
 
     # Create data rows
-    data_rows = [' | '.join(str(cell).ljust(col_widths[i]) for i, cell in enumerate(row)) for row in data]
+    data_rows = [
+        " | ".join(str(cell).ljust(col_widths[i]) for i, cell in enumerate(row))
+        for row in data
+    ]
 
     # Combine all parts
     table = f"{header_row}\n{separator}\n" + "\n".join(data_rows)
     return table
 
+
 @client.command(
     name="getoutlook",
     help="Retrieves the the convective outlooks for a particular city over a period of time",
 )
-async def spc_outlook(ctx, city: str = None, state: str = None, start_date: str = None, end_date: str = None,
-                      threshold: str = None):
+async def spc_outlook(
+    ctx,
+    city: str = None,
+    state: str = None,
+    start_date: str = None,
+    end_date: str = None,
+    threshold: str = None,
+):
     """
     Get SPC outlooks for a specific location
     Usage: !spcoutlook [city] [state] [start_date] [end_date] [threshold]
@@ -189,16 +210,14 @@ async def spc_outlook(ctx, city: str = None, state: str = None, start_date: str 
 
     # Get location from command arguments
     if not city or not state:
-        await processing_msg.edit(content="Please provide city, state, start date, and end date. Example: `$getoutlook Atlanta GA \"January 1 2025\" \"March 1 2025\"`")
+        await processing_msg.edit(
+            content='Please provide city, state, start date, and end date. Example: `$getoutlook Atlanta GA "January 1 2025" "March 1 2025"`'
+        )
         return
 
     # Geocode the location
     base_url = "https://geocode.xyz"
-    params = {
-        "locate": f"{city} {state}",
-        "region": "US",
-        "json": "1"
-    }
+    params = {"locate": f"{city} {state}", "region": "US", "json": "1"}
 
     req_url = f"{base_url}/?{requests.utils.unquote(requests.compat.urlencode(params))}"
     try:
@@ -210,17 +229,24 @@ async def spc_outlook(ctx, city: str = None, state: str = None, start_date: str 
         return
 
     # Check if we got valid coordinates
-    if 'error' in geocode_data or 'longt' not in geocode_data or 'latt' not in geocode_data:
+    if (
+        "error" in geocode_data
+        or "longt" not in geocode_data
+        or "latt" not in geocode_data
+    ):
         await processing_msg.edit(
-            content=f"Could not find coordinates for {city}, {state}. Please check your spelling.")
+            content=f"Could not find coordinates for {city}, {state}. Please check your spelling."
+        )
         return
 
     # Get SPC outlook data
     url = f"https://mesonet.agron.iastate.edu/json/spcoutlook.py?lon={geocode_data['longt']}&lat={geocode_data['latt']}&last=0&day=1&cat=categorical"
     json_data = fetch_json_data(url)
 
-    if not json_data or 'error' in json_data:
-        await processing_msg.edit(content=f"Error fetching SPC outlook data: {json_data.get('error', 'Unknown error')}")
+    if not json_data or "error" in json_data:
+        await processing_msg.edit(
+            content=f"Error fetching SPC outlook data: {json_data.get('error', 'Unknown error')}"
+        )
         return
 
     # Parse date filters if provided
@@ -238,37 +264,46 @@ async def spc_outlook(ctx, city: str = None, state: str = None, start_date: str 
 
     # Filter outlooks based on user input
     filtered_outlooks = filter_outlooks_by_time_range(
-        json_data['outlooks'],
+        json_data["outlooks"],
         start_date=parsed_start_date,
         end_date=parsed_end_date,
-        threshold=threshold
+        threshold=threshold,
     )
 
     # If no outlooks found
     if not filtered_outlooks:
-        await processing_msg.edit(content=f"No outlooks found for {city}, {state} with the specified filters.")
+        await processing_msg.edit(
+            content=f"No outlooks found for {city}, {state} with the specified filters."
+        )
         return
 
     # Prepare data for display
     display_data = [
         [
-            outlook['threshold'],
-            outlook['category'],
-            format_utc_date(outlook['utc_issue']),
-            format_utc_date(outlook['utc_expire']),
-            format_utc_date(outlook['utc_product_issue'])
+            outlook["threshold"],
+            outlook["category"],
+            format_utc_date(outlook["utc_issue"]),
+            format_utc_date(outlook["utc_expire"]),
+            format_utc_date(outlook["utc_product_issue"]),
         ]
         for outlook in filtered_outlooks
     ]
 
-    headers = ['Threshold', 'Category', 'Local Issue Date', 'Local Expire Date', 'Local Product Issue Date']
+    headers = [
+        "Threshold",
+        "Category",
+        "Local Issue Date",
+        "Local Expire Date",
+        "Local Product Issue Date",
+    ]
     # Create a table using tabulate
     table = create_formatted_table(display_data, headers)
 
     # Count thresholds
-    threshold_counts = Counter(outlook['threshold'] for outlook in filtered_outlooks)
+    threshold_counts = Counter(outlook["threshold"] for outlook in filtered_outlooks)
     threshold_summary = "\n**Threshold Summary:**\n" + "\n".join(
-        f"{threshold}: {count}" for threshold, count in threshold_counts.items())
+        f"{threshold}: {count}" for threshold, count in threshold_counts.items()
+    )
 
     # Create response message
     output = f"**SPC Outlook for {city}, {state}**\n\n"
@@ -283,7 +318,10 @@ async def spc_outlook(ctx, city: str = None, state: str = None, start_date: str 
         # Send the file
         await processing_msg.delete()
         file = File(fp=buffer, filename="spc_outlook.txt")
-        await ctx.send(content=f"SPC Outlook for {city}, {state} (found {len(filtered_outlooks)} results)", file=file)
+        await ctx.send(
+            content=f"SPC Outlook for {city}, {state} (found {len(filtered_outlooks)} results)",
+            file=file,
+        )
     else:
         # Add the table to the message with code block formatting
         output += f"```\n{table}\n```\n"
@@ -292,6 +330,7 @@ async def spc_outlook(ctx, city: str = None, state: str = None, start_date: str 
 
         # Send the message
         await processing_msg.edit(content=output)
+
 
 @client.command(name="getUTC", help="Gets the current UTC time.")
 async def getUTC(ctx) -> None:
