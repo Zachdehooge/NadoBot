@@ -1,19 +1,16 @@
 import io
-from dateutil import parser
-import pytz
-from collections import Counter
 from discord.ext import commands
-from dotenv import load_dotenv
 from functions import *
 import discord
 import time
 import os
 import json
+from dateutil import parser
 
 # Retrieve token from .env
 load_dotenv()
 TOKEN: str = os.getenv("TOKEN")
-APIKEY = os.getenv("APIKEY")
+
 
 # Configure Bot
 intents = discord.Intents.default()
@@ -89,109 +86,14 @@ async def getoffice(ctx, *args):
         + forecastOffice(" ".join(args))
     )
 
-
-def fetch_json_data(url):
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        return response.json()
-    except requests.RequestException as e:
-        return {"error": str(e)}
-
-
-def parse_utc_date(utc_date_str):
-    """Parse UTC date string to datetime object with UTC timezone"""
-    parsed_date = datetime.fromisoformat(utc_date_str.replace("Z", "+00:00"))
-    return parsed_date.replace(tzinfo=pytz.UTC)
-
-
-def format_utc_date(utc_date_str):
-    """Convert UTC ISO format date to a more readable format in local time"""
-    utc_date = parse_utc_date(utc_date_str)
-    local_tz = datetime.now(pytz.UTC).astimezone().tzinfo
-    local_date = utc_date.astimezone(local_tz)
-    return local_date.strftime("%B %d, %Y at %I:%M %p %Z")
-
-
-def filter_outlooks_by_time_range(
-    outlooks, start_date=None, end_date=None, threshold=None
-):
-    """Filter outlooks based on time range and optional threshold"""
-    filtered_outlooks = []
-
-    for outlook in outlooks:
-        # Parse the UTC issue date (already timezone-aware)
-        issue_date = parse_utc_date(outlook["utc_issue"])
-
-        # Check date range
-        date_in_range = True
-        if start_date:
-            date_in_range = date_in_range and issue_date >= start_date
-        if end_date:
-            date_in_range = date_in_range and issue_date <= end_date
-
-        # Check threshold if specified
-        threshold_match = not threshold or outlook["threshold"] == threshold
-
-        # Add to filtered list if both conditions are met
-        if date_in_range and threshold_match:
-            filtered_outlooks.append(outlook)
-
-    return filtered_outlooks
-
-
-def create_formatted_table(data, headers):
-    """Create a custom formatted table with proper header alignment"""
-    if not data:
-        return "No data available"
-
-    # Format dates to ensure timezone doesn't wrap
-    for row in data:
-        for i in range(len(row)):
-            # Check if this cell contains a date with timezone at the end
-            cell_str = str(row[i])
-            if (
-                " EDT" in cell_str
-                or " EST" in cell_str
-                or " PDT" in cell_str
-                or " PST" in cell_str
-            ):
-                # Replace the full timezone with a shorter version
-                # For example: "March 30, 2025, at 01:15 PM EDT" -> "Mar 30, 2025 01:15PM ET"
-                parts = cell_str.split()
-                if len(parts) >= 7:  # Make sure it's the expected format
-                    month = parts[0][:3]  # Abbreviate month name
-                    day = parts[1].rstrip(",")
-                    year = parts[2]
-                    time = parts[4]
-                    ampm = parts[5]
-                    tz = parts[6][0] + "T"  # Just take first letter + T
-                    row[i] = f"{month} {day}, {year} {time}{ampm} {tz}"
-
-    # Get the maximum width for each column
-    col_widths = [max(len(str(row[i])) for row in data) for i in range(len(data[0]))]
-    for i, header in enumerate(headers):
-        col_widths[i] = max(col_widths[i], len(header))
-
-    # Create the header row with proper alignment
-    header_row = " | ".join(h.ljust(col_widths[i]) for i, h in enumerate(headers))
-    separator = "-+-".join("-" * w for w in col_widths)
-
-    # Create data rows
-    data_rows = [
-        " | ".join(str(cell).ljust(col_widths[i]) for i, cell in enumerate(row))
-        for row in data
-    ]
-
-    # Combine all parts
-    table = f"{header_row}\n{separator}\n" + "\n".join(data_rows)
-    return table
-
+@client.command(name="getUTC", help="Gets the current UTC time.")
+async def getUTC(ctx) -> None:
+    utc_time = await getUTCTime()
+    await ctx.send(utc_time.strftime("%H:%M %m-%d-%y"))
 
 @client.command(
     name="getoutlook",
-    help="Retrieves the the convective outlooks for a particular city over a period of time",
-)
+    help="Usage: getoutlook [city] [state] [start_date] [end_date] [threshold] // Example: $getoutlook Dallas TX \"March 1, 2024\" \"April 1, 2024\" MRGL (the risk variable is optional)")
 async def spc_outlook(
     ctx,
     city: str = None,
@@ -200,18 +102,14 @@ async def spc_outlook(
     end_date: str = None,
     threshold: str = None,
 ):
-    """
-    Get SPC outlooks for a specific location
-    Usage: !spcoutlook [city] [state] [start_date] [end_date] [threshold]
-    Example: !spcoutlook Dallas TX "March 1, 2024" "April 1, 2024" MRGL
-    """
+
     # Inform user that we're processing
     processing_msg = await ctx.send("Processing your request, please wait...")
 
     # Get location from command arguments
     if not city or not state:
         await processing_msg.edit(
-            content='Please provide city, state, start date, and end date. Example: `$getoutlook Atlanta GA "January 1 2025" "March 1 2025"`'
+            content='Usage: getoutlook [city] [state] [start_date] [end_date] [threshold] // Example: `$getoutlook Dallas TX \"March 1, 2024\" \"April 1, 2024\" MRGL` (the risk variable is optional)"'
         )
         return
 
@@ -235,7 +133,7 @@ async def spc_outlook(
         or "latt" not in geocode_data
     ):
         await processing_msg.edit(
-            content=f"Could not find coordinates for {city}, {state}. Please check your spelling."
+            content=f"Could not find coordinates for {city}, {state}. Please check that you have an APIKEY env var set."
         )
         return
 
@@ -301,7 +199,7 @@ async def spc_outlook(
 
     # Count thresholds
     threshold_counts = Counter(outlook["threshold"] for outlook in filtered_outlooks)
-    threshold_summary = "\n**Threshold Summary:**\n" + "\n".join(
+    threshold_summary = "\nThreshold Summary:\n" + "\n".join(
         f"{threshold}: {count}" for threshold, count in threshold_counts.items()
     )
 
@@ -310,32 +208,17 @@ async def spc_outlook(
 
     # Combine response parts based on length
     # If the table is too long for a Discord message, send it as a file
-    if len(table) > 1950:
-        # Write table to a file
-        file_content = f"SPC Outlook for {city}, {state}\n\n{table}\n\n{threshold_summary}\n\nTotal Outlooks: {len(filtered_outlooks)}"
-        buffer = io.StringIO(file_content)
+    # Write table to a file
+    file_content = f"SPC Outlook for {city}, {state}\n\n{table}\n\n{threshold_summary}\n\nTotal Outlooks: {len(filtered_outlooks)}"
+    buffer = io.StringIO(file_content)
 
-        # Send the file
-        await processing_msg.delete()
-        file = File(fp=buffer, filename="spc_outlook.txt")
-        await ctx.send(
-            content=f"SPC Outlook for {city}, {state} (found {len(filtered_outlooks)} results)",
-            file=file,
-        )
-    else:
-        # Add the table to the message with code block formatting
-        output += f"```\n{table}\n```\n"
-        output += threshold_summary
-        output += f"\n\n**Total Outlooks:** {len(filtered_outlooks)}"
-
-        # Send the message
-        await processing_msg.edit(content=output)
-
-
-@client.command(name="getUTC", help="Gets the current UTC time.")
-async def getUTC(ctx) -> None:
-    utc_time = await getUTCTime()
-    await ctx.send(utc_time.strftime("%H:%M %m-%d-%y"))
+    # Send the file
+    await processing_msg.delete()
+    file = File(fp=buffer, filename=f"{city}_{state}_{start_date}_{end_date}.txt")
+    await ctx.send(
+        content=f"SPC Outlook for {city}, {state} (found {len(filtered_outlooks)} results)",
+        file=file,
+    )
 
 
 @client.command(
