@@ -86,14 +86,17 @@ async def getoffice(ctx, *args):
         + forecastOffice(" ".join(args))
     )
 
+
 @client.command(name="getUTC", help="Gets the current UTC time.")
 async def getUTC(ctx) -> None:
     utc_time = await getUTCTime()
     await ctx.send(utc_time.strftime("%H:%M %m-%d-%y"))
 
+
 @client.command(
     name="getoutlook",
-    help="Usage: getoutlook [city] [state] [start_date] [end_date] [threshold] // Example: $getoutlook Dallas TX \"March 1, 2024\" \"April 1, 2024\" MRGL (the risk variable is optional)")
+    help='Usage: getoutlook [city] [state] [start_date] [end_date] [threshold] // Example: $getoutlook Dallas TX "March 1, 2024" "April 1, 2024" MRGL (the risk variable is optional)',
+)
 async def spc_outlook(
     ctx,
     city: str = None,
@@ -109,7 +112,7 @@ async def spc_outlook(
     # Get location from command arguments
     if not city or not state:
         await processing_msg.edit(
-            content='Usage: getoutlook [city] [state] [start_date] [end_date] [threshold] // Example: `$getoutlook Dallas TX \"March 1, 2024\" \"April 1, 2024\" MRGL` (the risk variable is optional)"'
+            content='Usage: getoutlook [city] [state] [start_date] [end_date] [threshold] // Example: `$getoutlook Dallas TX "March 1, 2024" "April 1, 2024" MRGL` (the risk variable is optional)"'
         )
         return
 
