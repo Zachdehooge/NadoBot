@@ -6,6 +6,12 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 from discord import Embed, File
 from typing import List
+from dotenv import load_dotenv
+import pytz
+from collections import Counter
+
+load_dotenv()
+APIKEY = os.getenv("APIKEY")
 
 
 cooldowns = {"fetch": {"last_used": 0, "cooldown": 60}}
@@ -257,3 +263,77 @@ def forecastOffice(*args) -> str:
     #print(type(office_data['name']))
     return office_data['name'] + " | " + "NWS Website: https://www.weather.gov/" + office_code
 
+def fetch_json_data(url):
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        return {"error": str(e)}
+
+
+def parse_utc_date(utc_date_str):
+    """Parse UTC date string to datetime object with UTC timezone"""
+    parsed_date = datetime.fromisoformat(utc_date_str.replace("Z", "+00:00"))
+    return parsed_date.replace(tzinfo=pytz.UTC)
+
+
+def format_utc_date(utc_date_str):
+    """Convert UTC ISO format date to a more readable format in local time"""
+    utc_date = parse_utc_date(utc_date_str)
+    local_tz = datetime.now(pytz.UTC).astimezone().tzinfo
+    local_date = utc_date.astimezone(local_tz)
+    return local_date.strftime("%B %d, %Y at %I:%M %p %Z")
+
+
+def filter_outlooks_by_time_range(
+    outlooks, start_date=None, end_date=None, threshold=None
+):
+    """Filter outlooks based on time range and optional threshold"""
+    filtered_outlooks = []
+
+    for outlook in outlooks:
+        # Parse the UTC issue date (already timezone-aware)
+        issue_date = parse_utc_date(outlook["utc_issue"])
+
+        # Check date range
+        date_in_range = True
+        if start_date:
+            date_in_range = date_in_range and issue_date >= start_date
+        if end_date:
+            date_in_range = date_in_range and issue_date <= end_date
+
+        # Check threshold if specified
+        threshold_match = not threshold or outlook["threshold"] == threshold
+
+        # Add to filtered list if both conditions are met
+        if date_in_range and threshold_match:
+            filtered_outlooks.append(outlook)
+
+    return filtered_outlooks
+
+
+def create_formatted_table(data, headers):
+    """Create a custom formatted table with proper header alignment"""
+    if not data:
+        return "No data available"
+
+    # Get the maximum width for each column
+    col_widths = [max(len(str(row[i])) for row in data) for i in range(len(data[0]))]
+
+    for i, header in enumerate(headers):
+        col_widths[i] = max(col_widths[i], len(header))
+
+    # Create the header row with proper alignment
+    header_row = " | ".join(h.ljust(col_widths[i]) for i, h in enumerate(headers))
+    separator = "-+-".join("-" * w for w in col_widths)
+
+    # Create data rows
+    data_rows = [
+        " | ".join(str(cell).ljust(col_widths[i]) for i, cell in enumerate(row))
+        for row in data
+    ]
+
+    # Combine all parts
+    table = f"{header_row}\n{separator}\n" + "\n".join(data_rows)
+    return table
