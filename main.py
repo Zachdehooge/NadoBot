@@ -234,8 +234,7 @@ async def fetch(ctx, *args) -> None:
 
     cooldown = cooldowns["fetch"]
 
-    # TODO: This try/except block is hardcoded with the params, needs fixing + adding the life risk param.
-    # Currently works and is not urgent.
+    # TODO: This try/except block is hardcoded with the params, needs fixing + adding the life risk param. Currently works and is not urgent.
     allowed_params = ["sig", "life", "tor", "wind", "hail"]
 
     # Let's check the args to make sure we should do this request.
@@ -293,19 +292,16 @@ async def fetch(ctx, *args) -> None:
 
     fileNumber = 0
     for file in result:
-        # TODO: Add a case for when the user wants to fetch all images &
-        # for tor life risk. (This was recently added in the Nadocast website, under 2024 models)
+        # TODO: Add a case for when the user wants to fetch all images & for tor life risk. (This was recently added in the Nadocast website, under 2024 models)
 
-        # TODO: For some reason, the forecast hours are still changing. This this needs to be created better.
-        # As of today (Nov 3rd, 2024), a new range has been introduced: f12-35, strange.
+        # TODO: For some reason, the forecast hours are still changing. This this needs to be created better. As of today (Nov 3rd, 2024), a new range has been introduced: f12-35, strange.
 
         timeRange = file.split("_")[-1].replace(".png", "")
 
         # Checks if the file is the correct to what the user wants, and if so, adds it to a list to send later.
         acceptableArgs = ["sig", "life", "tor", "wind", "hail"]
 
-        # TODO: This "extras" for a name should really be renamed, alongside other things. But I have not really been thinking of better names.
-        # TL;DR: Change names of variables to something more accurate.
+        # TODO: This "extras" for a name should really be renamed, alongside other things. But I have not really been thinking of better names. TL;DR: Change names of variables to something more accurate.
 
         extras = []
         notExtra = "sig"

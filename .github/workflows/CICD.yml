@@ -10,23 +10,28 @@ on:
 
 jobs:
   snyk:
-    permissions: write-all
+    permissions:
+      contents: read
+      security-events: write
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@master
+      - uses: actions/checkout@v4
+
       - name: Run Snyk to check for vulnerabilities
         uses: snyk/actions/python@master
-        continue-on-error: true # To make sure that SARIF upload gets called
+        continue-on-error: true
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
-          args: --sarif-file-output=snyk.sarif
+          args: --sarif-file-output=./snyk.sarif
+
       - name: Upload result to GitHub Code Scanning
+        if: hashFiles('./snyk.sarif') != ''
         uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: snyk.sarif
+          sarif_file: ./snyk.sarif
 
-# Checks the API status to ensure it is 200 OK
+  # Checks the API status to ensure it is 200 OK
   tests:
     name: Unit Tests
     runs-on: ubuntu-latest
