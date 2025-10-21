@@ -2,7 +2,7 @@
 
 [![CI/CD Pipeline](https://github.com/Zachdehooge/NadoBot/actions/workflows/CICD.yml/badge.svg)](https://github.com/Zachdehooge/NadoBot/actions/workflows/CICD.yml)
 
-![Alt](https://repobeats.axiom.co/api/embed/33a13497022ac4ec16c0609dfa21f1481cfd4a24.svg 'Repobeats analytics image')
+![Alt](![Alt](https://repobeats.axiom.co/api/embed/33a13497022ac4ec16c0609dfa21f1481cfd4a24.svg "Repobeats analytics image")
 
 ## Models
 
