@@ -53,12 +53,12 @@ validD1TimeRanges = ["f01-23", "f02-23", "f02-17", "f01-17", "f12-35"]
 # Events
 @client.event
 async def on_ready() -> None:
-    print(f"We have logged in as {client.user}")
+    activity = discord.Activity(type=discord.ActivityType.listening, name="$help")
+    await client.change_presence(activity=activity)
+    print(f"Logged in as {client.user}")
 
 
 # Commands
-
-
 # TODO: Modify the help command to provide descriptions and category title through an embed
 class MyHelpCommand(commands.MinimalHelpCommand):
     async def send_pages(self):
