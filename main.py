@@ -1,4 +1,5 @@
 import io
+from discord import app_commands
 from discord.ext import commands
 from functions import *
 import discord
@@ -10,6 +11,7 @@ from dateutil import parser
 # Retrieve token from .env
 load_dotenv()
 TOKEN: str = os.getenv("TOKEN")
+OWNER_GUILD: str = os.getenv("GUILD")
 
 
 # Configure Bot
@@ -17,7 +19,8 @@ intents = discord.Intents.default()
 intents.message_content = True
 
 # Create bot client
-client = commands.Bot(command_prefix="$", intents=intents)
+client = commands.Bot(command_prefix=None, intents=intents)
+# tree = app_commands.CommandTree(client)
 
 # Dictionary to change the if statements to a more readable format
 models = {
@@ -49,15 +52,6 @@ abreviations = {
 # Valid time ranges (We can remove this later, but it's good to have for now)
 validD1TimeRanges = ["f01-23", "f02-23", "f02-17", "f01-17", "f12-35"]
 
-
-# Events
-@client.event
-async def on_ready() -> None:
-    activity = discord.Activity(type=discord.ActivityType.listening, name="$help")
-    await client.change_presence(activity=activity)
-    print(f"Logged in as {client.user}")
-
-
 # Commands
 # TODO: Modify the help command to provide descriptions and category title through an embed
 class MyHelpCommand(commands.MinimalHelpCommand):
@@ -73,19 +67,28 @@ client.help_command = MyHelpCommand()
 
 # Command to fetch the forecast office for a location passed by the user
 
-
-@client.command(
+@client.tree.command(
     name="getoffice",
-    help="Retrieves the forecast office for a city. Usage: $getOffice (city) (state abbreviation) (Las Vegas NV)",
+    description="Get the NWS forecast office for a location",
 )
-async def getoffice(ctx, *args):
-    await ctx.send(
-        "The NWS Office for "
-        + " ".join(args)
-        + " is: "
-        + forecastOffice(" ".join(args))
-    )
+@app_commands.describe(location="The location you want to look up")
+async def getoffice(interaction: discord.Interaction, location: str):
+    office = forecastOffice(location)
+    await interaction.response.send_message(f"The NWS Office for **{location}** is: **{office}**")
 
+# # New Implementation
+# @tree.command(
+#     name="getoffice",
+#     description="Retrieves the forecast office for a city. Usage: $getOffice (city) (state abbreviation) (Las Vegas NV)",
+#     guild=discord.Object(id=OWNER_GUILD)
+# )
+# async def getoffice(ctx, *args):
+#     await ctx.send(
+#         "The NWS Office for "
+#         + " ".join(args)
+#         + " is: "
+#         + forecastOffice(" ".join(args))
+#     )
 
 @client.command(name="getUTC", help="Gets the current UTC time.")
 async def getUTC(ctx) -> None:
@@ -372,6 +375,14 @@ async def fetch(ctx, *args) -> None:
     # Debug for the files we return, uncomment if you want to see the files we are returning in logs/general.log
     # await log("Files: {\n", "\n".join(debug), "\n}")
 
+# Events
+@client.event
+async def on_ready() -> None:
+    activity = discord.Activity(type=discord.ActivityType.listening, name="$help")
+    await client.change_presence(activity=activity)
+    guild = discord.Object(id=OWNER_GUILD)
+    await client.tree.sync(guild=guild)
+    print(f"Logged in as {client.user}")
 
 # Run the bot
 if __name__ == "__main__":
