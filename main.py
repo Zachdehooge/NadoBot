@@ -13,7 +13,6 @@ load_dotenv()
 TOKEN: str = os.getenv("TOKEN")
 OWNER_GUILD: str = os.getenv("GUILD")
 
-
 # Configure Bot
 intents = discord.Intents.default()
 intents.message_content = True
@@ -21,6 +20,15 @@ intents.message_content = True
 # Create bot client
 client = commands.Bot(command_prefix=None, intents=intents)
 # tree = app_commands.CommandTree(client)
+
+# Events
+@client.event
+async def on_ready() -> None:
+    activity = discord.Activity(type=discord.ActivityType.listening, name="$help")
+    await client.change_presence(activity=activity)
+    guild = discord.Object(id=OWNER_GUILD)
+    await client.tree.sync(guild=guild)
+    print(f"Logged in as {client.user}")
 
 # Dictionary to change the if statements to a more readable format
 models = {
@@ -52,6 +60,7 @@ abreviations = {
 # Valid time ranges (We can remove this later, but it's good to have for now)
 validD1TimeRanges = ["f01-23", "f02-23", "f02-17", "f01-17", "f12-35"]
 
+
 # Commands
 # TODO: Modify the help command to provide descriptions and category title through an embed
 class MyHelpCommand(commands.MinimalHelpCommand):
@@ -65,30 +74,18 @@ class MyHelpCommand(commands.MinimalHelpCommand):
 
 client.help_command = MyHelpCommand()
 
-# Command to fetch the forecast office for a location passed by the user
 
+# Command to fetch the forecast office for a location passed by the user
 @client.tree.command(
     name="getoffice",
     description="Get the NWS forecast office for a location",
+    guild=discord.Object(id=OWNER_GUILD)
 )
 @app_commands.describe(location="The location you want to look up")
 async def getoffice(interaction: discord.Interaction, location: str):
     office = forecastOffice(location)
     await interaction.response.send_message(f"The NWS Office for **{location}** is: **{office}**")
 
-# # New Implementation
-# @tree.command(
-#     name="getoffice",
-#     description="Retrieves the forecast office for a city. Usage: $getOffice (city) (state abbreviation) (Las Vegas NV)",
-#     guild=discord.Object(id=OWNER_GUILD)
-# )
-# async def getoffice(ctx, *args):
-#     await ctx.send(
-#         "The NWS Office for "
-#         + " ".join(args)
-#         + " is: "
-#         + forecastOffice(" ".join(args))
-#     )
 
 @client.command(name="getUTC", help="Gets the current UTC time.")
 async def getUTC(ctx) -> None:
@@ -101,14 +98,13 @@ async def getUTC(ctx) -> None:
     help='Usage: getoutlook [city] [state] [start_date] [end_date] [threshold] // Example: $getoutlook Dallas TX "March 1, 2024" "April 1, 2024" MRGL (the risk variable is optional)',
 )
 async def spc_outlook(
-    ctx,
-    city: str = None,
-    state: str = None,
-    start_date: str = None,
-    end_date: str = None,
-    threshold: str = None,
+        ctx,
+        city: str = None,
+        state: str = None,
+        start_date: str = None,
+        end_date: str = None,
+        threshold: str = None,
 ):
-
     # Inform user that we're processing
     processing_msg = await ctx.send("Processing your request, please wait...")
 
@@ -134,9 +130,9 @@ async def spc_outlook(
 
     # Check if we got valid coordinates
     if (
-        "error" in geocode_data
-        or "longt" not in geocode_data
-        or "latt" not in geocode_data
+            "error" in geocode_data
+            or "longt" not in geocode_data
+            or "latt" not in geocode_data
     ):
         await processing_msg.edit(
             content=f"Could not find coordinates for {city}, {state}. Please check that you have an APIKEY env var set."
@@ -232,7 +228,6 @@ async def spc_outlook(
     help="Fetches the latest Nadocast images. \n Usage: $fetch <params> \n Allowed params: sig, tor, wind, hail\n Examples: `$fetch tor`, `$fetch sig tor`",
 )
 async def fetch(ctx, *args) -> None:
-
     await log("DEBUG: Fetch command called with args:", ",".join(args))
 
     cooldown = cooldowns["fetch"]
@@ -322,9 +317,9 @@ async def fetch(ctx, *args) -> None:
 
         # The list of files to send
         if (
-            f"{extras[0]}_{extras[1]}" in file
-            and timeRange in validD1TimeRanges
-            and notExtra not in file
+                f"{extras[0]}_{extras[1]}" in file
+                and timeRange in validD1TimeRanges
+                and notExtra not in file
         ):
             files.append(discord.File(file, filename="image.png"))
             # Also for debug (the line below)
@@ -359,7 +354,7 @@ async def fetch(ctx, *args) -> None:
         elif 18 <= hour < 24:
             hour = 18
         text = f"Sorry! It appears Nadocast hasn't uploaded the images for {
-            timeNow}z, here are {hour}z's instead!"
+        timeNow}z, here are {hour}z's instead!"
         # Update our hexcode to yellow to note a "warning" that it's not the current time.
         hexcode = 0xFFFF00
 
@@ -374,15 +369,6 @@ async def fetch(ctx, *args) -> None:
 
     # Debug for the files we return, uncomment if you want to see the files we are returning in logs/general.log
     # await log("Files: {\n", "\n".join(debug), "\n}")
-
-# Events
-@client.event
-async def on_ready() -> None:
-    activity = discord.Activity(type=discord.ActivityType.listening, name="$help")
-    await client.change_presence(activity=activity)
-    guild = discord.Object(id=OWNER_GUILD)
-    await client.tree.sync(guild=guild)
-    print(f"Logged in as {client.user}")
 
 # Run the bot
 if __name__ == "__main__":
