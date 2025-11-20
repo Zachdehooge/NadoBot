@@ -94,25 +94,36 @@ async def getUTC(interaction: discord.Interaction) -> None:
     await interaction.response.send_message(utc_time.strftime("%H:%M %m-%d-%y"))
 
 
-@client.command(
+@client.tree.command(
     name="getoutlook",
-    help='Usage: getoutlook [city] [state] [start_date] [end_date] [threshold] // Example: $getoutlook Dallas TX "March 1, 2024" "April 1, 2024" MRGL (the risk variable is optional)',
+    description="Usage: getoutlook [city] [state] [start_date] [end_date] [threshold]",
+    guild=discord.Object(id=OWNER_GUILD)
 )
-async def spc_outlook(
-        ctx,
-        city: str = None,
-        state: str = None,
-        start_date: str = None,
-        end_date: str = None,
-        threshold: str = None,
+@app_commands.describe(
+    city="City name",
+    state="State abbreviation",
+    start_date="Start date (e.g. March 1, 2024)",
+    end_date="End date (e.g. April 1, 2024)",
+    threshold="Risk threshold (optional)"
+)
+async def getoutlook(
+    interaction: discord.Interaction,
+    city: str,
+    state: str,
+    start_date: str = None,
+    end_date: str = None,
+    threshold: str = None,
 ):
-    # Inform user that we're processing
-    processing_msg = await ctx.send("Processing your request, please wait...")
+    # Ensure interaction is deferred so followup messages are allowed,
+    # then create a single followup message we can edit for errors/updates.
+    if not interaction.response.is_done():
+        await interaction.response.defer(thinking=True)
+    processing_msg = await interaction.followup.send(content="Processing your request, please wait...", wait=True)
 
     # Get location from command arguments
     if not city or not state:
         await processing_msg.edit(
-            content='Usage: getoutlook [city] [state] [start_date] [end_date] [threshold] // Example: `$getoutlook Dallas TX "March 1, 2024" "April 1, 2024" MRGL` (the risk variable is optional)"'
+            content='Usage: getoutlook [city] [state] [start_date] [end_date] [threshold] // Example: `$getoutlook Dallas TX "March 1, 2024" "April 1, 2024" MRGL` (the risk variable is optional)'
         )
         return
 
@@ -145,8 +156,10 @@ async def spc_outlook(
     json_data = fetch_json_data(url)
 
     if not json_data or "error" in json_data:
+        # defensive: json_data may be None
+        err_msg = json_data.get("error", "Unknown error") if isinstance(json_data, dict) else "Unknown error"
         await processing_msg.edit(
-            content=f"Error fetching SPC outlook data: {json_data.get('error', 'Unknown error')}"
+            content=f"Error fetching SPC outlook data: {err_msg}"
         )
         return
 
@@ -203,22 +216,19 @@ async def spc_outlook(
     # Count thresholds
     threshold_counts = Counter(outlook["threshold"] for outlook in filtered_outlooks)
     threshold_summary = "\nThreshold Summary:\n" + "\n".join(
-        f"{threshold}: {count}" for threshold, count in threshold_counts.items()
+        f"{th}: {count}" for th, count in threshold_counts.items()
     )
 
     # Create response message
     output = f"**SPC Outlook for {city}, {state}**\n\n"
 
-    # Combine response parts based on length
-    # If the table is too long for a Discord message, send it as a file
-    # Write table to a file
+    # Write table to a file-like buffer
     file_content = f"SPC Outlook for {city}, {state}\n\n{table}\n\n{threshold_summary}\n\nTotal Outlooks: {len(filtered_outlooks)}"
     buffer = io.StringIO(file_content)
 
-    # Send the file
-    await processing_msg.delete()
-    file = File(fp=buffer, filename=f"{city}_{state}_{start_date}_{end_date}.txt")
-    await ctx.send(
+    # Send the final file and message using the existing followup
+    file = discord.File(fp=buffer, filename=f"{city}_{state}_{start_date}_{end_date}.txt")
+    await interaction.followup.send(
         content=f"SPC Outlook for {city}, {state} (found {len(filtered_outlooks)} results)",
         file=file,
     )
