@@ -87,10 +87,11 @@ async def getoffice(interaction: discord.Interaction, location: str):
     await interaction.response.send_message(f"The NWS Office for **{location}** is: **{office}**")
 
 
-@client.command(name="getUTC", help="Gets the current UTC time.")
-async def getUTC(ctx) -> None:
+@client.tree.command(name="getutc", description="Get the NWS forecast office for a location", guild=discord.Object(
+    id=OWNER_GUILD))
+async def getUTC(interaction: discord.Interaction) -> None:
     utc_time = await getUTCTime()
-    await ctx.send(utc_time.strftime("%H:%M %m-%d-%y"))
+    await interaction.response.send_message(utc_time.strftime("%H:%M %m-%d-%y"))
 
 
 @client.command(
