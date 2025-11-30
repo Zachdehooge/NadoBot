@@ -1,12 +1,15 @@
 import io
-from discord import app_commands
-from discord.ext import commands
-from functions import *
-import discord
-import time
-import os
 import json
+import os
+import time
+
+import discord
 from dateutil import parser
+from discord import app_commands
+from discord.app_commands import checks, CommandOnCooldown
+from discord.ext import commands
+
+from functions import *
 
 # Retrieve token from .env
 load_dotenv()
@@ -19,7 +22,7 @@ intents.message_content = True
 
 # Create bot client
 client = commands.Bot(command_prefix=None, intents=intents)
-# tree = app_commands.CommandTree(client)
+
 
 # Events
 @client.event
@@ -29,6 +32,7 @@ async def on_ready() -> None:
     guild = discord.Object(id=OWNER_GUILD)
     await client.tree.sync(guild=guild)
     print(f"Logged in as {client.user}")
+
 
 # Dictionary to change the if statements to a more readable format
 models = {
@@ -60,35 +64,39 @@ abreviations = {
 # Valid time ranges (We can remove this later, but it's good to have for now)
 validD1TimeRanges = ["f01-23", "f02-23", "f02-17", "f01-17", "f12-35"]
 
-
-# Commands
-# TODO: Modify the help command to provide descriptions and category title through an embed
-class MyHelpCommand(commands.MinimalHelpCommand):
-    async def send_pages(self):
-        destination = self.get_destination()
-        e = discord.Embed(color=discord.Color.blurple(), description="")
-        for page in self.paginator.pages:
-            e.description += page
-        await destination.send(embed=e)
-
-
-client.help_command = MyHelpCommand()
-
+@client.tree.command(name="help", description="Shows this help message.", guild=discord.Object(id=OWNER_GUILD))
+async def help_slash(interaction: discord.Interaction):
+    embed = discord.Embed(title="Help", description="List of available slash commands:", color=discord.Color.blurple())
+    for cmd in client.tree.get_commands(guild=discord.Object(id=OWNER_GUILD)):
+        embed.add_field(name=f"/{cmd.name}", value=cmd.description or "No description.", inline=False)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 # Command to fetch the forecast office for a location passed by the user
 @client.tree.command(
     name="getoffice",
     description="Get the NWS forecast office for a location",
-    guild=discord.Object(id=OWNER_GUILD)
+    guild=discord.Object(id=OWNER_GUILD),
 )
 @app_commands.describe(location="The location you want to look up")
+@checks.cooldown(1, 30.0, key=lambda i: (i.guild_id, i.user.id))
 async def getoffice(interaction: discord.Interaction, location: str):
     office = forecastOffice(location)
-    await interaction.response.send_message(f"The NWS Office for **{location}** is: **{office}**")
+    await interaction.response.send_message(
+        f"The NWS Office for **{location}** is: **{office}**"
+    )
+@client.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error):
+    if isinstance(error, CommandOnCooldown):
+        await interaction.response.send_message(
+            f"Please wait {error.retry_after:.1f} seconds before using this command again.",
+            ephemeral=True
+        )
 
-
-@client.tree.command(name="getutc", description="Get the NWS forecast office for a location", guild=discord.Object(
-    id=OWNER_GUILD))
+@client.tree.command(
+    name="getutc",
+    description="Get the NWS forecast office for a location",
+    guild=discord.Object(id=OWNER_GUILD),
+)
 async def getUTC(interaction: discord.Interaction) -> None:
     utc_time = await getUTCTime()
     await interaction.response.send_message(utc_time.strftime("%H:%M %m-%d-%y"))
@@ -97,14 +105,14 @@ async def getUTC(interaction: discord.Interaction) -> None:
 @client.tree.command(
     name="getoutlook",
     description="Usage: getoutlook [city] [state] [start_date] [end_date] [threshold]",
-    guild=discord.Object(id=OWNER_GUILD)
+    guild=discord.Object(id=OWNER_GUILD),
 )
 @app_commands.describe(
     city="City name",
     state="State abbreviation",
     start_date="Start date (e.g. March 1, 2024)",
     end_date="End date (e.g. April 1, 2024)",
-    threshold="Risk threshold (optional)"
+    threshold="Risk threshold (optional)",
 )
 async def getoutlook(
     interaction: discord.Interaction,
@@ -118,7 +126,9 @@ async def getoutlook(
     # then create a single followup message we can edit for errors/updates.
     if not interaction.response.is_done():
         await interaction.response.defer(thinking=True)
-    processing_msg = await interaction.followup.send(content="Processing your request, please wait...", wait=True)
+    processing_msg = await interaction.followup.send(
+        content="Processing your request, please wait...", wait=True
+    )
 
     # Get location from command arguments
     if not city or not state:
@@ -142,9 +152,9 @@ async def getoutlook(
 
     # Check if we got valid coordinates
     if (
-            "error" in geocode_data
-            or "longt" not in geocode_data
-            or "latt" not in geocode_data
+        "error" in geocode_data
+        or "longt" not in geocode_data
+        or "latt" not in geocode_data
     ):
         await processing_msg.edit(
             content=f"Could not find coordinates for {city}, {state}. Please check that you have an APIKEY env var set."
@@ -157,10 +167,12 @@ async def getoutlook(
 
     if not json_data or "error" in json_data:
         # defensive: json_data may be None
-        err_msg = json_data.get("error", "Unknown error") if isinstance(json_data, dict) else "Unknown error"
-        await processing_msg.edit(
-            content=f"Error fetching SPC outlook data: {err_msg}"
+        err_msg = (
+            json_data.get("error", "Unknown error")
+            if isinstance(json_data, dict)
+            else "Unknown error"
         )
+        await processing_msg.edit(content=f"Error fetching SPC outlook data: {err_msg}")
         return
 
     # Parse date filters if provided
@@ -227,54 +239,67 @@ async def getoutlook(
     buffer = io.StringIO(file_content)
 
     # Send the final file and message using the existing followup
-    file = discord.File(fp=buffer, filename=f"{city}_{state}_{start_date}_{end_date}.txt")
+    file = discord.File(
+        fp=buffer, filename=f"{city}_{state}_{start_date}_{end_date}.txt"
+    )
     await interaction.followup.send(
         content=f"SPC Outlook for {city}, {state} (found {len(filtered_outlooks)} results)",
         file=file,
     )
 
-
-@client.command(
+@client.tree.command(
     name="fetch",
-    help="Fetches the latest Nadocast images. \n Usage: $fetch <params> \n Allowed params: sig, tor, wind, hail\n Examples: `$fetch tor`, `$fetch sig tor`",
+    description="Fetches the latest Nadocast images. Example: `/fetch tor`, `/fetch sig tor`",
+    guild=discord.Object(id=OWNER_GUILD),
 )
-async def fetch(ctx, *args) -> None:
-    await log("DEBUG: Fetch command called with args:", ",".join(args))
+@app_commands.describe(
+    param1="Primary parameter (sig, life, tor, wind, hail)",
+    param2="Secondary parameter (optional: tor, wind, hail)"
+)
+async def fetch(interaction: discord.Interaction, param1: str, param2: str = None) -> None:
+    await log("DEBUG: Fetch command called with params:", param1, str(param2))
 
     cooldown = cooldowns["fetch"]
 
-    # TODO: This try/except block is hardcoded with the params, needs fixing + adding the life risk param. Currently works and is not urgent.
     allowed_params = ["sig", "life", "tor", "wind", "hail"]
 
-    # Let's check the args to make sure we should do this request.
-    try:
-        allowed_params.index(args[0])
-
-        if (args[0] == "sig" or args[0] == "life") and args[1] != None:
-            allowed_params.index(args[1])
-
-    except:
-        return await ctx.send(
-            "Incorrect params! Example of proper commands: \n$fetch sig tor \n$fetch tor"
+    # Validate params
+    if param1 not in allowed_params:
+        await interaction.response.send_message(
+            "Incorrect params! Example of proper commands: `/fetch sig tor`, `/fetch tor`",
+            ephemeral=True
         )
+        return
+    if param1 in ["sig", "life"] and param2 and param2 not in allowed_params:
+        await interaction.response.send_message(
+            "Incorrect secondary param! Example: `/fetch sig tor`",
+            ephemeral=True
+        )
+        return
 
-    # Check if we are in cooldown
+    # Check cooldown
     if cooldown["last_used"] + cooldown["cooldown"] > datetime.now().timestamp():
-        return await ctx.send("Please wait a minute before using this command again!")
+        await interaction.response.send_message(
+            "Please wait a minute before using this command again!",
+            ephemeral=True
+        )
+        return
 
     utc_time = await getUTCTime()
-    await ctx.send("Fetching... please wait.")
-    await ctx.send(f"Current UTC Time: {utc_time.strftime("%H:%M | %m-%d-%y")}")
-    UTC = await getUTCTime()
-    # Fetch data, get our list of images
+    await interaction.response.send_message("Fetching... please wait.", ephemeral=True)
+    await interaction.followup.send(f"Current UTC Time: {utc_time.strftime('%H:%M | %m-%d-%y')}", ephemeral=True)
+    UTC = utc_time
 
-    model, extra, doNotInclude = ctx.bot.models.values()
+    # Fetch data, get our list of images
+    model = client.models["model"]
+    extra = client.models["extra"]
+    doNotInclude = client.models["doNotInclude"]
     result = await getNadoCastData(UTC, model, extra, doNotInclude)
 
     timeNow = UTC.strftime("%H")
     timeNowInt = int(timeNow)
 
-    # Since the data is only available at 0Z, 12Z, 18Z, we need to round the time to the nearest available time
+    # Round time to nearest available time
     if timeNowInt < 12:
         timeNow = 0
     elif 12 <= timeNowInt < 18:
@@ -282,104 +307,80 @@ async def fetch(ctx, *args) -> None:
     elif 18 <= timeNowInt < 24:
         timeNow = 18
 
-    # This shouldn't trigger, but if it does, something went wrong.
     if result is None:
         await log(
             f"Error: No images found for {timeNow}Z, current UTC is {timeNowInt}z."
         )
-        await ctx.send(
-            f"It appears Nadocast has not put out the new images for this time range ({timeNow}z)! Please try again in a minute."
+        await interaction.followup.send(
+            f"It appears Nadocast has not put out the new images for this time range ({timeNow}z)! Please try again in a minute.",
+            ephemeral=True
         )
         cooldown["last_used"] = datetime.now().timestamp()
         return
 
-    # Send the images
     files = []
-    file_names = []
     debug = []
-    # print(args)
 
-    fileNumber = 0
-    for file in result:
-        # TODO: Add a case for when the user wants to fetch all images & for tor life risk. (This was recently added in the Nadocast website, under 2024 models)
+    # Argument mapping
+    acceptableArgs = ["sig", "life", "tor", "wind", "hail"]
+    extras = []
+    notExtra = "sig"
 
-        # TODO: For some reason, the forecast hours are still changing. This this needs to be created better. As of today (Nov 3rd, 2024), a new range has been introduced: f12-35, strange.
+    if param1 in acceptableArgs:
+        extras = [abreviations.get(param1, param1), ""]
+    if param1 == "sig":
+        notExtra = "?"
 
-        timeRange = file.split("_")[-1].replace(".png", "")
-
-        # Checks if the file is the correct to what the user wants, and if so, adds it to a list to send later.
-        acceptableArgs = ["sig", "life", "tor", "wind", "hail"]
-
-        # TODO: This "extras" for a name should really be renamed, alongside other things. But I have not really been thinking of better names. TL;DR: Change names of variables to something more accurate.
-
-        extras = []
-        notExtra = "sig"
-
-        if args[0] in acceptableArgs:
-            extras = [abreviations[f"{args[0]}"], ""]
-
-        if args[0] == "sig":
-            notExtra = "?"
-
+    if param2:
         try:
-            extras[1] = abreviations[f"{args[1]}"]
-        except Exception as e:
+            extras[1] = abreviations.get(param2, param2)
+        except Exception:
             pass
 
-        # The list of files to send
+    for file in result:
+        timeRange = file.split("_")[-1].replace(".png", "")
         if (
-                f"{extras[0]}_{extras[1]}" in file
-                and timeRange in validD1TimeRanges
-                and notExtra not in file
+            f"{extras[0]}_{extras[1]}" in file
+            and timeRange in validD1TimeRanges
+            and notExtra not in file
         ):
             files.append(discord.File(file, filename="image.png"))
-            # Also for debug (the line below)
             debug.append(file)
             continue
 
-    # This is never triggered, but if it is, something went wrong.
     if len(files) == 0:
-        return await ctx.send(
-            "It appears Nadocast has not put out the new images for this time range! Please try again in a minute."
+        await interaction.followup.send(
+            "It appears Nadocast has not put out the new images for this time range! Please try again in a minute.",
+            ephemeral=True
         )
+        return
 
-    # can be removed, I think, should just be for debugging
     debug.sort()
-
-    # This text will be displayed in the embed
     text = ""
-    # Default color is green, as it's good
     hexcode = 0x008000
 
     if f"{timeNow}z" in result[0]:
         text = f"Here are the images for {timeNow}z!"
     else:
         UTC = UTC - timedelta(hours=6)
-
         hour = int(UTC.strftime("%H"))
-
         if hour < 12:
             hour = 0
         elif 12 <= hour < 18:
             hour = 12
         elif 18 <= hour < 24:
             hour = 18
-        text = f"Sorry! It appears Nadocast hasn't uploaded the images for {
-        timeNow}z, here are {hour}z's instead!"
-        # Update our hexcode to yellow to note a "warning" that it's not the current time.
+        text = f"Sorry! It appears Nadocast hasn't uploaded the images for {timeNow}z, here are {hour}z's instead!"
         hexcode = 0xFFFF00
 
     embedData = createWeatherEmbed(
-        file=files[0], title=f"{"".join(args)}", description=text, color=hexcode
+        file=files[0], title=f"{param1} {param2 or ''}", description=text, color=hexcode
     )
 
-    await ctx.send(embed=embedData[0], files=[embedData[1]])
+    await interaction.followup.send(embed=embedData[0], files=[embedData[1]])
 
     await log("Removing Nadocast Folder")
     checkOldFolders()
-
-    # Debug for the files we return, uncomment if you want to see the files we are returning in logs/general.log
-    # await log("Files: {\n", "\n".join(debug), "\n}")
 
 # Run the bot
 if __name__ == "__main__":
@@ -389,7 +390,6 @@ if __name__ == "__main__":
     if type(TOKEN) == type(None) or len(TOKEN) == 0:
         print("Please follow the readme to setup the bot!")
     else:
-
         # Sets the model and extra from .env and stores it to client.models (ctx.bot.models)
         model = ""
         extra = ""

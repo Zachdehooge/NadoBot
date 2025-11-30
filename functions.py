@@ -1,14 +1,15 @@
 import os
-from datetime import datetime, time, timedelta, timezone
 import shutil
-import requests
+from collections import Counter
+from datetime import datetime, time, timedelta, timezone
+from typing import List
 from urllib.parse import urljoin
+
+import pytz
+import requests
 from bs4 import BeautifulSoup
 from discord import Embed, File
-from typing import List
 from dotenv import load_dotenv
-import pytz
-from collections import Counter
 
 load_dotenv()
 APIKEY = os.getenv("APIKEY")
@@ -28,7 +29,6 @@ async def getUTCTime() -> datetime:
 async def getNadoCastData(
     time: datetime, models: str, extra: str, doNotInclude: str
 ) -> list[str]:
-
     # Get specific data from the datetime object
     month = time.strftime("%m")
     day = time.strftime("%d")
@@ -176,29 +176,31 @@ def isAcceptableFile(file: str, model: str, extra: str, doNotInclude: str) -> bo
         return True
     return False
 
+
 def checkOldFolders():
     time = datetime.now()
     timeNow = time.strftime("%H")
     timeNowInt = int(timeNow)
 
     if timeNowInt < 13:
-        #timeNow = 0
+        # timeNow = 0
         timeNow = 12
         shutil.rmtree(f"Nadocast_{timeNow}")
         timeNow = 18
         shutil.rmtree(f"Nadocast_{timeNow}")
     elif 13 <= timeNowInt < 18:
-        #timeNow = 12
+        # timeNow = 12
         timeNow = 0
         shutil.rmtree(f"Nadocast_{timeNow}")
         timeNow = 18
         shutil.rmtree(f"Nadocast_{timeNow}")
     elif 18 <= timeNowInt < 24:
-        #timeNow = 18
+        # timeNow = 18
         timeNow = 12
         shutil.rmtree(f"Nadocast_{timeNow}")
         timeNow = 0
         shutil.rmtree(f"Nadocast_{timeNow}")
+
 
 def createWeatherEmbed(file: File, title: str, description: str, color) -> List:
     # file = File(filePath, filename="image.png")
@@ -215,15 +217,10 @@ def createWeatherEmbed(file: File, title: str, description: str, color) -> List:
 
 
 def forecastOffice(location) -> str:
-
     result = f"{location}"
 
     base_url = "https://geocode.xyz"
-    params = {
-        "locate": result,
-        "region": "US",
-        "json": "1"
-    }
+    params = {"locate": result, "region": "US", "json": "1"}
 
     req_url = f"{base_url}/?{requests.utils.unquote(requests.compat.urlencode(params))}"
     try:
@@ -238,7 +235,9 @@ def forecastOffice(location) -> str:
     # Uncomment to debug coords being passed
     # print(f"\nLatitude: {geocode_data['latt']}, Longitude: {geocode_data['longt']}\n")
 
-    points_url = f"https://api.weather.gov/points/{geocode_data['latt']},{geocode_data['longt']}"
+    points_url = (
+        f"https://api.weather.gov/points/{geocode_data['latt']},{geocode_data['longt']}"
+    )
     try:
         points_resp = requests.get(points_url)
         points_resp.raise_for_status()
@@ -260,8 +259,14 @@ def forecastOffice(location) -> str:
 
     office_data = office_resp.json()
 
-    #print(type(office_data['name']))
-    return office_data['name'] + " | " + "NWS Website: https://www.weather.gov/" + office_code
+    # print(type(office_data['name']))
+    return (
+        office_data["name"]
+        + " | "
+        + "NWS Website: https://www.weather.gov/"
+        + office_code
+    )
+
 
 def fetch_json_data(url):
     try:
