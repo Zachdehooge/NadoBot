@@ -64,12 +64,26 @@ abreviations = {
 # Valid time ranges (We can remove this later, but it's good to have for now)
 validD1TimeRanges = ["f01-23", "f02-23", "f02-17", "f01-17", "f12-35"]
 
-@client.tree.command(name="help", description="Shows this help message.", guild=discord.Object(id=OWNER_GUILD))
+
+@client.tree.command(
+    name="help",
+    description="Shows this help message.",
+    guild=discord.Object(id=OWNER_GUILD),
+)
 async def help_slash(interaction: discord.Interaction):
-    embed = discord.Embed(title="Help", description="List of available slash commands:", color=discord.Color.blurple())
+    embed = discord.Embed(
+        title="Help",
+        description="List of available slash commands:",
+        color=discord.Color.blurple(),
+    )
     for cmd in client.tree.get_commands(guild=discord.Object(id=OWNER_GUILD)):
-        embed.add_field(name=f"/{cmd.name}", value=cmd.description or "No description.", inline=False)
+        embed.add_field(
+            name=f"/{cmd.name}",
+            value=cmd.description or "No description.",
+            inline=False,
+        )
     await interaction.response.send_message(embed=embed, ephemeral=True)
+
 
 # Command to fetch the forecast office for a location passed by the user
 @client.tree.command(
@@ -84,13 +98,16 @@ async def getoffice(interaction: discord.Interaction, location: str):
     await interaction.response.send_message(
         f"The NWS Office for **{location}** is: **{office}**"
     )
+
+
 @client.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error):
     if isinstance(error, CommandOnCooldown):
         await interaction.response.send_message(
             f"Please wait {error.retry_after:.1f} seconds before using this command again.",
-            ephemeral=True
+            ephemeral=True,
         )
+
 
 @client.tree.command(
     name="getutc",
@@ -247,6 +264,7 @@ async def getoutlook(
         file=file,
     )
 
+
 @client.tree.command(
     name="fetch",
     description="Fetches the latest Nadocast images. Example: `/fetch tor`, `/fetch sig tor`",
@@ -254,9 +272,11 @@ async def getoutlook(
 )
 @app_commands.describe(
     param1="Primary parameter (sig, life, tor, wind, hail)",
-    param2="Secondary parameter (optional: tor, wind, hail)"
+    param2="Secondary parameter (optional: tor, wind, hail)",
 )
-async def fetch(interaction: discord.Interaction, param1: str, param2: str = None) -> None:
+async def fetch(
+    interaction: discord.Interaction, param1: str, param2: str = None
+) -> None:
     await log("DEBUG: Fetch command called with params:", param1, str(param2))
 
     cooldown = cooldowns["fetch"]
@@ -267,27 +287,27 @@ async def fetch(interaction: discord.Interaction, param1: str, param2: str = Non
     if param1 not in allowed_params:
         await interaction.response.send_message(
             "Incorrect params! Example of proper commands: `/fetch sig tor`, `/fetch tor`",
-            ephemeral=True
+            ephemeral=True,
         )
         return
     if param1 in ["sig", "life"] and param2 and param2 not in allowed_params:
         await interaction.response.send_message(
-            "Incorrect secondary param! Example: `/fetch sig tor`",
-            ephemeral=True
+            "Incorrect secondary param! Example: `/fetch sig tor`", ephemeral=True
         )
         return
 
     # Check cooldown
     if cooldown["last_used"] + cooldown["cooldown"] > datetime.now().timestamp():
         await interaction.response.send_message(
-            "Please wait a minute before using this command again!",
-            ephemeral=True
+            "Please wait a minute before using this command again!", ephemeral=True
         )
         return
 
     utc_time = await getUTCTime()
     await interaction.response.send_message("Fetching... please wait.", ephemeral=True)
-    await interaction.followup.send(f"Current UTC Time: {utc_time.strftime('%H:%M | %m-%d-%y')}", ephemeral=True)
+    await interaction.followup.send(
+        f"Current UTC Time: {utc_time.strftime('%H:%M | %m-%d-%y')}", ephemeral=True
+    )
     UTC = utc_time
 
     # Fetch data, get our list of images
@@ -313,7 +333,7 @@ async def fetch(interaction: discord.Interaction, param1: str, param2: str = Non
         )
         await interaction.followup.send(
             f"It appears Nadocast has not put out the new images for this time range ({timeNow}z)! Please try again in a minute.",
-            ephemeral=True
+            ephemeral=True,
         )
         cooldown["last_used"] = datetime.now().timestamp()
         return
@@ -351,7 +371,7 @@ async def fetch(interaction: discord.Interaction, param1: str, param2: str = Non
     if len(files) == 0:
         await interaction.followup.send(
             "It appears Nadocast has not put out the new images for this time range! Please try again in a minute.",
-            ephemeral=True
+            ephemeral=True,
         )
         return
 
@@ -381,6 +401,7 @@ async def fetch(interaction: discord.Interaction, param1: str, param2: str = Non
 
     await log("Removing Nadocast Folder")
     checkOldFolders()
+
 
 # Run the bot
 if __name__ == "__main__":
