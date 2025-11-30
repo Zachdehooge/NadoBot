@@ -448,8 +448,6 @@ async def fetch(
             ephemeral=True,
         )
         checkOldFolders()
-        # Always clean old folders after command execution
-        checkOldFolders()
         return
 
     text = f"Here are the images for {zulu_hour}z!"
@@ -463,8 +461,6 @@ async def fetch(
     await interaction.followup.send(embed=embedData[0], file=discord_file)
     cooldown["last_used"] = datetime.now().timestamp()
     checkOldFolders()
-    # Always clean old folders after command execution
-    checkOldFolders()
 
 
 # Run the bot
@@ -475,18 +471,4 @@ if __name__ == "__main__":
     if type(TOKEN) == type(None) or len(TOKEN) == 0:
         print("Please follow the readme to setup the bot!")
     else:
-        # Sets the model and extra from .env and stores it to client.models (ctx.bot.models)
-        model = ""
-        extra = ""
-        setModel = os.getenv("MODELS")
-        model = model_dict[f"{setModel}"]["model"]
-        extra = model_dict[f"{setModel}"]["extra"]
-        notExtra = model_dict[f"{setModel}"]["notExtra"]
-
-        # If they leave it blank, we will fetch all models.
-        if model == "":
-            extra = ""
-            notExtra = "?"
-
-        client.models = {"model": model, "extra": extra, "doNotInclude": notExtra}
         client.run(TOKEN)
