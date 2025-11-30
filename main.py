@@ -34,6 +34,7 @@ async def on_ready() -> None:
     await client.tree.sync(guild=guild)
     print(f"Logged in as {client.user}")
 
+
 # Dictionary to change the if statements to a more readable format
 model_dict = {
     "2024": {"model": "_2024_", "extra": "", "notExtra": "abs"},
@@ -274,13 +275,23 @@ async def getoutlook(
     date="Date (e.g. March 15, 2025)",
     param="Type (tor, wind, hail, sig, life)",
     models="Model (2024, 2024abs, 2022, 2022abs, blank for all) [optional]",
-    zulu="Zulu hour (0, 12, or 18) [optional]"
+    zulu="Zulu hour (0, 12, or 18) [optional]",
 )
 async def fetch(
-    interaction: discord.Interaction, date: str, param: str = None, models: str = "", zulu: str = None
+    interaction: discord.Interaction,
+    date: str,
+    param: str = None,
+    models: str = "",
+    zulu: str = None,
 ) -> None:
     try:
-        await log("DEBUG: Fetch command called with params:", date, str(param), str(models), str(zulu))
+        await log(
+            "DEBUG: Fetch command called with params:",
+            date,
+            str(param),
+            str(models),
+            str(zulu),
+        )
     except Exception as e:
         await interaction.response.send_message(f"Log error: {e}", ephemeral=True)
         return
@@ -334,7 +345,9 @@ async def fetch(
         try:
             utc_now = await getUTCTime()
         except Exception as e:
-            await interaction.response.send_message(f"getUTCTime error: {e}", ephemeral=True)
+            await interaction.response.send_message(
+                f"getUTCTime error: {e}", ephemeral=True
+            )
             return
         hour = utc_now.hour
         if hour < 12:
@@ -345,7 +358,9 @@ async def fetch(
             zulu_hour = 18
 
     # Check cooldown
-    remaining = cooldown["last_used"] + cooldown["cooldown"] - datetime.now().timestamp()
+    remaining = (
+        cooldown["last_used"] + cooldown["cooldown"] - datetime.now().timestamp()
+    )
     if remaining > 0:
         await interaction.response.send_message(
             f"Please wait {remaining:.1f} seconds before using this command again.",
@@ -365,11 +380,17 @@ async def fetch(
     if fetch_date:
         dt = fetch_date.replace(hour=zulu_hour)
         try:
-            await log(f"DEBUG: Calling getNadoCastData with dt={dt}, model={model}, extra={extra}, doNotInclude={doNotInclude}")
+            await log(
+                f"DEBUG: Calling getNadoCastData with dt={dt}, model={model}, extra={extra}, doNotInclude={doNotInclude}"
+            )
             result = await getNadoCastData(dt, model, extra, doNotInclude)
-            await log(f"DEBUG: getNadoCastData returned {len(result) if result else 'None'} results")
+            await log(
+                f"DEBUG: getNadoCastData returned {len(result) if result else 'None'} results"
+            )
         except Exception as e:
-            await interaction.followup.send(f"getNadoCastData error: {e}", ephemeral=True)
+            await interaction.followup.send(
+                f"getNadoCastData error: {e}", ephemeral=True
+            )
             return
         # Filter for the requested type (exact match, not substring)
         type_str = abreviations.get(fetch_type, fetch_type)
@@ -380,13 +401,17 @@ async def fetch(
             files = [f for f in result if f"_{type_str}_" in f]
         if not files:
             await interaction.followup.send(
-                f"No Nadocast images found for {fetch_type} on {date} at {zulu_hour}z.", ephemeral=True
+                f"No Nadocast images found for {fetch_type} on {date} at {zulu_hour}z.",
+                ephemeral=True,
             )
             checkOldFolders()
             return
         discord_file = discord.File(files[0], filename="image.png")
         embedData = createWeatherEmbed(
-            file=discord_file, title=f"{fetch_type}", description=f"Images for {date} {zulu_hour}z", color=0x008000
+            file=discord_file,
+            title=f"{fetch_type}",
+            description=f"Images for {date} {zulu_hour}z",
+            color=0x008000,
         )
         await interaction.followup.send(embed=embedData[0], file=discord_file)
         cooldown["last_used"] = datetime.now().timestamp()
@@ -397,9 +422,13 @@ async def fetch(
     utc_time = await getUTCTime()
     dt = utc_time.replace(hour=zulu_hour)
     try:
-        await log(f"DEBUG: Calling getNadoCastData for current UTC dt={dt}, model={model}, extra={extra}, doNotInclude={doNotInclude}")
+        await log(
+            f"DEBUG: Calling getNadoCastData for current UTC dt={dt}, model={model}, extra={extra}, doNotInclude={doNotInclude}"
+        )
         result = await getNadoCastData(dt, model, extra, doNotInclude)
-        await log(f"DEBUG: getNadoCastData returned {len(result) if result else 'None'} results")
+        await log(
+            f"DEBUG: getNadoCastData returned {len(result) if result else 'None'} results"
+        )
     except Exception as e:
         await interaction.followup.send(f"getNadoCastData error: {e}", ephemeral=True)
         return
@@ -436,10 +465,18 @@ async def fetch(
         timeRange = file.split("_")[-1].replace(".png", "")
         # Only match files with _tornado_ and not sig_tornado for tor
         if fetch_type == "tor":
-            if "_tornado_" in file and "sig_tornado" not in file and timeRange in validD1TimeRanges:
+            if (
+                "_tornado_" in file
+                and "sig_tornado" not in file
+                and timeRange in validD1TimeRanges
+            ):
                 files.append(file)
         else:
-            if f"{extras[0]}_{extras[1]}" in file and timeRange in validD1TimeRanges and notExtra not in file:
+            if (
+                f"{extras[0]}_{extras[1]}" in file
+                and timeRange in validD1TimeRanges
+                and notExtra not in file
+            ):
                 files.append(file)
 
     if len(files) == 0:
@@ -457,7 +494,10 @@ async def fetch(
 
     discord_file = discord.File(files[0], filename="image.png")
     embedData = createWeatherEmbed(
-        file=discord_file, title=f"{fetch_type} {param or ''}", description=text, color=hexcode
+        file=discord_file,
+        title=f"{fetch_type} {param or ''}",
+        description=text,
+        color=hexcode,
     )
 
     await interaction.followup.send(embed=embedData[0], file=discord_file)
