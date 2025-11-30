@@ -15,7 +15,7 @@ load_dotenv()
 APIKEY = os.getenv("APIKEY")
 
 
-cooldowns = {"fetch": {"last_used": 0, "cooldown": 60}}
+cooldowns = {"fetch": {"last_used": 0, "cooldown": 30}}
 
 
 async def getUTCTime() -> datetime:
