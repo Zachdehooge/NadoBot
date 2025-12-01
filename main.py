@@ -293,7 +293,7 @@ async def fetch(
         return
 
     cooldown = cooldowns["fetch"]
-    allowed_params = ["sig", "life", "tor", "wind", "hail"]
+    allowed_params = ["life", "tor", "wind", "hail"]
     allowed_zulu = ["0", "12", "18"]
     allowed_models = ["2024", "2024abs", "2022", "2022abs", ""]
 
