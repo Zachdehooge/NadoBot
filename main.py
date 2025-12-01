@@ -429,7 +429,7 @@ async def fetch(
         embedData = createWeatherEmbed(
             file=discord_file,
             title=f"{fetch_type}",
-            description=f"Images for {date} {zulu_hour}z",
+            description=f"Image for {date} @ {zulu_hour}z",
             color=0x008000,
         )
         await interaction.followup.send(embed=embedData[0], file=discord_file)
