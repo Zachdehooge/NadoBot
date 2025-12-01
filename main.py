@@ -273,6 +273,26 @@ currentDate = date.today().strftime("%B %d, %Y")
     models="Model (2024, 2024abs, 2022, 2022abs) [optional] - Defaults to the 2022 model",
     zulu="Zulu hour (0, 12, or 18) [optional]",
 )
+@app_commands.choices(
+    param=[
+        app_commands.Choice(name="Tornado", value="tor"),
+        app_commands.Choice(name="Wind", value="wind"),
+        app_commands.Choice(name="Hail", value="hail"),
+        app_commands.Choice(name="Life", value="life"),
+        # app_commands.Choice(name="Sig", value="sig"), # If we remove sig
+    ],
+    zulu=[
+        app_commands.Choice(name="0z", value="0"),
+        app_commands.Choice(name="12z", value="12"),
+        app_commands.Choice(name="18z", value="18"),
+    ],
+    models=[
+        app_commands.Choice(name="2022", value="2022"),
+        app_commands.Choice(name="2022 Absolutely Calibrated", value="2022abs"),
+        app_commands.Choice(name="2024", value="2024"),
+        app_commands.Choice(name="2024 Absolutely Calibrated", value="2024abs"),
+    ],
+)
 async def fetch(
     interaction: discord.Interaction,
     param: str,
