@@ -270,7 +270,7 @@ currentDate = date.today().strftime("%B %d, %Y")
 @app_commands.describe(
     date="Date (e.g. March 15, 2025)",
     param="Type (tor, wind, hail, sig, life)",
-    models="Model (2024, 2024abs, 2022, 2022abs, blank for all) [optional]",
+    models="Model (2024, 2024abs, 2022, 2022abs) [optional] - Defaults to the 2022 model",
     zulu="Zulu hour (0, 12, or 18) [optional]",
 )
 async def fetch(
