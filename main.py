@@ -312,7 +312,7 @@ async def fetch(
     # Validate type
     if fetch_type not in allowed_params:
         await interaction.response.send_message(
-            "Incorrect params! Example of proper commands: `/fetch March 1, 2024 tor 2024 12`",
+            "Incorrect params! Example of a proper command: `/fetch param: Tornado models: 2024 Absolutely Calibrated zulu: 18z`",
             ephemeral=True,
         )
         checkOldFolders()
