@@ -3,6 +3,7 @@ import json
 import os
 import re
 import time
+from datetime import date
 
 import discord
 from dateutil import parser
@@ -15,7 +16,6 @@ from functions import *
 # Retrieve token from .env
 load_dotenv()
 TOKEN: str = os.getenv("TOKEN")
-OWNER_GUILD: str = os.getenv("GUILD")
 
 # Configure Bot
 intents = discord.Intents.default()
@@ -30,12 +30,10 @@ client = commands.Bot(command_prefix=None, intents=intents)
 async def on_ready() -> None:
     activity = discord.Activity(type=discord.ActivityType.listening, name="/help")
     await client.change_presence(activity=activity)
-    guild = discord.Object(id=OWNER_GUILD)
-    await client.tree.sync(guild=guild)
+    await client.tree.sync()
     print(f"Logged in as {client.user}")
 
 
-# Dictionary to change the if statements to a more readable format
 model_dict = {
     "2024": {"model": "_2024_", "extra": "", "notExtra": "abs"},
     "2024abs": {
@@ -69,7 +67,6 @@ validD1TimeRanges = ["f01-23", "f02-23", "f02-17", "f01-17", "f12-35"]
 @client.tree.command(
     name="help",
     description="Shows this help message.",
-    guild=discord.Object(id=OWNER_GUILD),
 )
 async def help_slash(interaction: discord.Interaction):
     embed = discord.Embed(
@@ -77,7 +74,7 @@ async def help_slash(interaction: discord.Interaction):
         description="List of available slash commands:",
         color=discord.Color.blurple(),
     )
-    for cmd in client.tree.get_commands(guild=discord.Object(id=OWNER_GUILD)):
+    for cmd in client.tree.get_commands():
         embed.add_field(
             name=f"/{cmd.name}",
             value=cmd.description or "No description.",
@@ -90,10 +87,9 @@ async def help_slash(interaction: discord.Interaction):
 @client.tree.command(
     name="getoffice",
     description="Get the NWS forecast office for a location",
-    guild=discord.Object(id=OWNER_GUILD),
 )
 @app_commands.describe(location="The location you want to look up")
-@checks.cooldown(1, 30.0, key=lambda i: (i.guild_id, i.user.id))
+@checks.cooldown(1, 30.0, key=lambda i: i.user.id)
 async def getoffice(interaction: discord.Interaction, location: str):
     office = forecastOffice(location)
     await interaction.response.send_message(
@@ -113,7 +109,6 @@ async def on_app_command_error(interaction: discord.Interaction, error):
 @client.tree.command(
     name="getutc",
     description="Get the NWS forecast office for a location",
-    guild=discord.Object(id=OWNER_GUILD),
 )
 async def getUTC(interaction: discord.Interaction) -> None:
     utc_time = await getUTCTime()
@@ -123,7 +118,6 @@ async def getUTC(interaction: discord.Interaction) -> None:
 @client.tree.command(
     name="getoutlook",
     description="Usage: getoutlook [city] [state] [start_date] [end_date] [threshold]",
-    guild=discord.Object(id=OWNER_GUILD),
 )
 @app_commands.describe(
     city="City name",
@@ -265,11 +259,10 @@ async def getoutlook(
         file=file,
     )
 
-
+currentDate = date.today().strftime("%B %d, %Y")
 @client.tree.command(
     name="fetch",
     description="Nadocast images for a given date, type, model, and zulu time. `/fetch March 1, 2024 tor 2024 12`",
-    guild=discord.Object(id=OWNER_GUILD),
 )
 @app_commands.describe(
     date="Date (e.g. March 15, 2025)",
@@ -277,11 +270,12 @@ async def getoutlook(
     models="Model (2024, 2024abs, 2022, 2022abs, blank for all) [optional]",
     zulu="Zulu hour (0, 12, or 18) [optional]",
 )
+
 async def fetch(
     interaction: discord.Interaction,
-    date: str,
-    param: str = None,
-    models: str = "",
+    param: str,
+    date: str = currentDate,
+    models: str = "2022",
     zulu: str = None,
 ) -> None:
     try:
@@ -332,16 +326,8 @@ async def fetch(
         return
 
     # Validate zulu argument if provided
-    if zulu is not None:
-        if zulu not in allowed_zulu:
-            await interaction.response.send_message(
-                "Invalid zulu time! Must be one of: 0, 12, 18.",
-                ephemeral=True,
-            )
-            checkOldFolders()
-            return
-        zulu_hour = int(zulu)
-    else:
+    # If zulu is None or empty string, use current UTC to determine zulu_hour
+    if not zulu:  # covers None and empty string
         try:
             utc_now = await getUTCTime()
         except Exception as e:
@@ -350,12 +336,24 @@ async def fetch(
             )
             return
         hour = utc_now.hour
-        if hour < 12:
-            zulu_hour = 0
-        elif 12 <= hour < 18:
+        # Pick the most recent valid zulu time <= current hour
+        if 13 <= hour < 18:
             zulu_hour = 12
-        else:
+        elif 0 <= hour < 10:
             zulu_hour = 18
+        elif 18 <= hour < 24:
+            zulu_hour = 18
+        else:
+            zulu_hour = 0
+    else:
+        if zulu not in allowed_zulu:
+            await interaction.response.send_message(
+                "Invalid zulu time! Must be one of: 0, 12, 18.",
+                ephemeral=True,
+            )
+            checkOldFolders()
+            return
+        zulu_hour = int(zulu)
 
     # Check cooldown
     remaining = (
@@ -404,7 +402,6 @@ async def fetch(
                 f"No Nadocast images found for {fetch_type} on {date} at {zulu_hour}z.",
                 ephemeral=True,
             )
-            checkOldFolders()
             return
         discord_file = discord.File(files[0], filename="image.png")
         embedData = createWeatherEmbed(

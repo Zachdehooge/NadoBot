@@ -178,29 +178,11 @@ def isAcceptableFile(file: str, model: str, extra: str, doNotInclude: str) -> bo
 
 
 def checkOldFolders():
-    time = datetime.now()
-    timeNow = time.strftime("%H")
-    timeNowInt = int(timeNow)
-
-    if timeNowInt < 13:
-        # timeNow = 0
-        timeNow = 12
-        shutil.rmtree(f"Nadocast_{timeNow}")
-        timeNow = 18
-        shutil.rmtree(f"Nadocast_{timeNow}")
-    elif 13 <= timeNowInt < 18:
-        # timeNow = 12
-        timeNow = 0
-        shutil.rmtree(f"Nadocast_{timeNow}")
-        timeNow = 18
-        shutil.rmtree(f"Nadocast_{timeNow}")
-    elif 18 <= timeNowInt < 24:
-        # timeNow = 18
-        timeNow = 12
-        shutil.rmtree(f"Nadocast_{timeNow}")
-        timeNow = 0
-        shutil.rmtree(f"Nadocast_{timeNow}")
-
+    for folder in ["Nadocast_0", "Nadocast_12", "Nadocast_18"]:
+        try:
+            shutil.rmtree(folder)
+        except FileNotFoundError:
+            continue
 
 def createWeatherEmbed(file: File, title: str, description: str, color) -> List:
     # file = File(filePath, filename="image.png")
