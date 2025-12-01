@@ -321,7 +321,7 @@ async def fetch(
     # Validate models argument
     if models not in allowed_models:
         await interaction.response.send_message(
-            "Invalid models param! Must be one of: 2024, 2024abs, 2022, 2022abs, or blank for all.",
+            "Invalid models param! Must be one of: 2024, 2024abs, 2022, 2022abs; or it can be left empty.",
             ephemeral=True,
         )
         checkOldFolders()
