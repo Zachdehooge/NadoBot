@@ -259,7 +259,10 @@ async def getoutlook(
         file=file,
     )
 
+
 currentDate = date.today().strftime("%B %d, %Y")
+
+
 @client.tree.command(
     name="fetch",
     description="Nadocast images for a given date, type, model, and zulu time. `/fetch March 1, 2024 tor 2024 12`",
@@ -270,7 +273,6 @@ currentDate = date.today().strftime("%B %d, %Y")
     models="Model (2024, 2024abs, 2022, 2022abs, blank for all) [optional]",
     zulu="Zulu hour (0, 12, or 18) [optional]",
 )
-
 async def fetch(
     interaction: discord.Interaction,
     param: str,
