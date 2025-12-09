@@ -1,26 +1,40 @@
 import io
-from discord.ext import commands
-from functions import *
-import discord
-import time
-import os
 import json
+import os
+import re
+import time
+from datetime import date
+
+import discord
 from dateutil import parser
+from discord import app_commands
+from discord.app_commands import checks, CommandOnCooldown
+from discord.ext import commands
+
+from functions import *
 
 # Retrieve token from .env
 load_dotenv()
 TOKEN: str = os.getenv("TOKEN")
-
 
 # Configure Bot
 intents = discord.Intents.default()
 intents.message_content = True
 
 # Create bot client
-client = commands.Bot(command_prefix="$", intents=intents)
+client = commands.Bot(command_prefix=None, intents=intents)
 
-# Dictionary to change the if statements to a more readable format
-models = {
+
+# Events
+@client.event
+async def on_ready() -> None:
+    activity = discord.Activity(type=discord.ActivityType.listening, name="/help")
+    await client.change_presence(activity=activity)
+    await client.tree.sync()
+    print(f"Logged in as {client.user}")
+
+
+model_dict = {
     "2024": {"model": "_2024_", "extra": "", "notExtra": "abs"},
     "2024abs": {
         "model": "_2024_",
@@ -50,69 +64,88 @@ abreviations = {
 validD1TimeRanges = ["f01-23", "f02-23", "f02-17", "f01-17", "f12-35"]
 
 
-# Events
-@client.event
-async def on_ready() -> None:
-    activity = discord.Activity(type=discord.ActivityType.listening, name="$help")
-    await client.change_presence(activity=activity)
-    print(f"Logged in as {client.user}")
+@client.tree.command(
+    name="help",
+    description="Shows this help message.",
+)
+async def help_slash(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="Help",
+        description="List of available slash commands:",
+        color=discord.Color.blurple(),
+    )
+    for cmd in client.tree.get_commands():
+        embed.add_field(
+            name=f"/{cmd.name}",
+            value=cmd.description or "No description.",
+            inline=False,
+        )
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
-
-# Commands
-# TODO: Modify the help command to provide descriptions and category title through an embed
-class MyHelpCommand(commands.MinimalHelpCommand):
-    async def send_pages(self):
-        destination = self.get_destination()
-        e = discord.Embed(color=discord.Color.blurple(), description="")
-        for page in self.paginator.pages:
-            e.description += page
-        await destination.send(embed=e)
-
-
-client.help_command = MyHelpCommand()
 
 # Command to fetch the forecast office for a location passed by the user
-
-
-@client.command(
+@client.tree.command(
     name="getoffice",
-    help="Retrieves the forecast office for a city. Usage: $getOffice (city) (state abbreviation) (Las Vegas NV)",
+    description="Get the NWS forecast office for a location",
 )
-async def getoffice(ctx, *args):
-    await ctx.send(
-        "The NWS Office for "
-        + " ".join(args)
-        + " is: "
-        + forecastOffice(" ".join(args))
+@app_commands.describe(location="The location you want to look up")
+@checks.cooldown(1, 30.0, key=lambda i: i.user.id)
+async def getoffice(interaction: discord.Interaction, location: str):
+    office = forecastOffice(location)
+    await interaction.response.send_message(
+        f"The NWS Office for **{location}** is: **{office}**"
     )
 
 
-@client.command(name="getUTC", help="Gets the current UTC time.")
-async def getUTC(ctx) -> None:
-    utc_time = await getUTCTime()
-    await ctx.send(utc_time.strftime("%H:%M %m-%d-%y"))
+@client.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error):
+    if isinstance(error, CommandOnCooldown):
+        await interaction.response.send_message(
+            f"Please wait {error.retry_after:.1f} seconds before using this command again.",
+            ephemeral=True,
+        )
 
 
-@client.command(
-    name="getoutlook",
-    help='Usage: getoutlook [city] [state] [start_date] [end_date] [threshold] // Example: $getoutlook Dallas TX "March 1, 2024" "April 1, 2024" MRGL (the risk variable is optional)',
+@client.tree.command(
+    name="getutc",
+    description="Get the NWS forecast office for a location",
 )
-async def spc_outlook(
-    ctx,
-    city: str = None,
-    state: str = None,
+async def getUTC(interaction: discord.Interaction) -> None:
+    utc_time = await getUTCTime()
+    await interaction.response.send_message(utc_time.strftime("%H:%M %m-%d-%y"))
+
+
+@client.tree.command(
+    name="getoutlook",
+    description="Usage: getoutlook [city] [state] [start_date] [end_date] [threshold]",
+)
+@app_commands.describe(
+    city="City name",
+    state="State abbreviation",
+    start_date="Start date (e.g. March 1, 2024)",
+    end_date="End date (e.g. April 1, 2024)",
+    threshold="Risk threshold (optional)",
+)
+async def getoutlook(
+    interaction: discord.Interaction,
+    city: str,
+    state: str,
     start_date: str = None,
     end_date: str = None,
     threshold: str = None,
 ):
-
-    # Inform user that we're processing
-    processing_msg = await ctx.send("Processing your request, please wait...")
+    # Ensure interaction is deferred so followup messages are allowed,
+    # then create a single followup message we can edit for errors/updates.
+    if not interaction.response.is_done():
+        await interaction.response.defer(thinking=True)
+    processing_msg = await interaction.followup.send(
+        content="Processing your request, please wait...", wait=True
+    )
 
     # Get location from command arguments
     if not city or not state:
         await processing_msg.edit(
-            content='Usage: getoutlook [city] [state] [start_date] [end_date] [threshold] // Example: `$getoutlook Dallas TX "March 1, 2024" "April 1, 2024" MRGL` (the risk variable is optional)"'
+            content='Usage: getoutlook [city] [state] [start_date] [end_date] [threshold] // Example: `$getoutlook Dallas TX "March 1, 2024" "April 1, 2024" MRGL` (the risk variable is optional)'
         )
         return
 
@@ -145,9 +178,13 @@ async def spc_outlook(
     json_data = fetch_json_data(url)
 
     if not json_data or "error" in json_data:
-        await processing_msg.edit(
-            content=f"Error fetching SPC outlook data: {json_data.get('error', 'Unknown error')}"
+        # defensive: json_data may be None
+        err_msg = (
+            json_data.get("error", "Unknown error")
+            if isinstance(json_data, dict)
+            else "Unknown error"
         )
+        await processing_msg.edit(content=f"Error fetching SPC outlook data: {err_msg}")
         return
 
     # Parse date filters if provided
@@ -203,174 +240,286 @@ async def spc_outlook(
     # Count thresholds
     threshold_counts = Counter(outlook["threshold"] for outlook in filtered_outlooks)
     threshold_summary = "\nThreshold Summary:\n" + "\n".join(
-        f"{threshold}: {count}" for threshold, count in threshold_counts.items()
+        f"{th}: {count}" for th, count in threshold_counts.items()
     )
 
     # Create response message
     output = f"**SPC Outlook for {city}, {state}**\n\n"
 
-    # Combine response parts based on length
-    # If the table is too long for a Discord message, send it as a file
-    # Write table to a file
+    # Write table to a file-like buffer
     file_content = f"SPC Outlook for {city}, {state}\n\n{table}\n\n{threshold_summary}\n\nTotal Outlooks: {len(filtered_outlooks)}"
     buffer = io.StringIO(file_content)
 
-    # Send the file
-    await processing_msg.delete()
-    file = File(fp=buffer, filename=f"{city}_{state}_{start_date}_{end_date}.txt")
-    await ctx.send(
+    # Send the final file and message using the existing followup
+    file = discord.File(
+        fp=buffer, filename=f"{city}_{state}_{start_date}_{end_date}.txt"
+    )
+    await interaction.followup.send(
         content=f"SPC Outlook for {city}, {state} (found {len(filtered_outlooks)} results)",
         file=file,
     )
 
 
-@client.command(
+currentDate = date.today().strftime("%B %d, %Y")
+
+
+@client.tree.command(
     name="fetch",
-    help="Fetches the latest Nadocast images. \n Usage: $fetch <params> \n Allowed params: sig, tor, wind, hail\n Examples: `$fetch tor`, `$fetch sig tor`",
+    description="Nadocast images for a given date, type, model, and zulu time. `/fetch March 1, 2024 tor 2024 12`",
 )
-async def fetch(ctx, *args) -> None:
-
-    await log("DEBUG: Fetch command called with args:", ",".join(args))
-
-    cooldown = cooldowns["fetch"]
-
-    # TODO: This try/except block is hardcoded with the params, needs fixing + adding the life risk param. Currently works and is not urgent.
-    allowed_params = ["sig", "life", "tor", "wind", "hail"]
-
-    # Let's check the args to make sure we should do this request.
+@app_commands.describe(
+    date="Date (e.g. March 15, 2025)",
+    param="Type (tor, wind, hail, sig, life)",
+    models="Model (2024, 2024abs, 2022, 2022abs) [optional] - Defaults to the 2022 model",
+    zulu="Zulu hour (0, 12, or 18) [optional]",
+)
+@app_commands.choices(
+    param=[
+        app_commands.Choice(name="Tornado", value="tor"),
+        app_commands.Choice(name="Wind", value="wind"),
+        app_commands.Choice(name="Hail", value="hail"),
+        app_commands.Choice(name="Life", value="life"),
+        # app_commands.Choice(name="Sig", value="sig"), # If we remove sig
+    ],
+    zulu=[
+        app_commands.Choice(name="0z", value="0"),
+        app_commands.Choice(name="12z", value="12"),
+        app_commands.Choice(name="18z", value="18"),
+    ],
+    models=[
+        app_commands.Choice(name="2022", value="2022"),
+        app_commands.Choice(name="2022 Absolutely Calibrated", value="2022abs"),
+        app_commands.Choice(name="2024", value="2024"),
+        app_commands.Choice(name="2024 Absolutely Calibrated", value="2024abs"),
+    ],
+)
+async def fetch(
+    interaction: discord.Interaction,
+    param: str,
+    date: str = currentDate,
+    models: str = "2022",
+    zulu: str = None,
+) -> None:
     try:
-        allowed_params.index(args[0])
-
-        if (args[0] == "sig" or args[0] == "life") and args[1] != None:
-            allowed_params.index(args[1])
-
-    except:
-        return await ctx.send(
-            "Incorrect params! Example of proper commands: \n$fetch sig tor \n$fetch tor"
-        )
-
-    # Check if we are in cooldown
-    if cooldown["last_used"] + cooldown["cooldown"] > datetime.now().timestamp():
-        return await ctx.send("Please wait a minute before using this command again!")
-
-    utc_time = await getUTCTime()
-    await ctx.send("Fetching... please wait.")
-    await ctx.send(f"Current UTC Time: {utc_time.strftime("%H:%M | %m-%d-%y")}")
-    UTC = await getUTCTime()
-    # Fetch data, get our list of images
-
-    model, extra, doNotInclude = ctx.bot.models.values()
-    result = await getNadoCastData(UTC, model, extra, doNotInclude)
-
-    timeNow = UTC.strftime("%H")
-    timeNowInt = int(timeNow)
-
-    # Since the data is only available at 0Z, 12Z, 18Z, we need to round the time to the nearest available time
-    if timeNowInt < 12:
-        timeNow = 0
-    elif 12 <= timeNowInt < 18:
-        timeNow = 12
-    elif 18 <= timeNowInt < 24:
-        timeNow = 18
-
-    # This shouldn't trigger, but if it does, something went wrong.
-    if result is None:
         await log(
-            f"Error: No images found for {timeNow}Z, current UTC is {timeNowInt}z."
+            "DEBUG: Fetch command called with params:",
+            date,
+            str(param),
+            str(models),
+            str(zulu),
         )
-        await ctx.send(
-            f"It appears Nadocast has not put out the new images for this time range ({timeNow}z)! Please try again in a minute."
-        )
-        cooldown["last_used"] = datetime.now().timestamp()
+    except Exception as e:
+        await interaction.response.send_message(f"Log error: {e}", ephemeral=True)
         return
 
-    # Send the images
-    files = []
-    file_names = []
-    debug = []
-    # print(args)
+    cooldown = cooldowns["fetch"]
+    allowed_params = ["life", "tor", "wind", "hail"]
+    allowed_zulu = ["0", "12", "18"]
+    allowed_models = ["2024", "2024abs", "2022", "2022abs", ""]
 
-    fileNumber = 0
-    for file in result:
-        # TODO: Add a case for when the user wants to fetch all images & for tor life risk. (This was recently added in the Nadocast website, under 2024 models)
+    # Always treat 'date' as the date and 'param' as the type
+    try:
+        fetch_date = datetime.strptime(date, "%B %d, %Y")
+    except ValueError:
+        await interaction.response.send_message(
+            "Invalid date format! Please use e.g. March 1, 2024.",
+            ephemeral=True,
+        )
+        checkOldFolders()
+        return
+    fetch_type = param
 
-        # TODO: For some reason, the forecast hours are still changing. This this needs to be created better. As of today (Nov 3rd, 2024), a new range has been introduced: f12-35, strange.
+    # Validate type
+    if fetch_type not in allowed_params:
+        await interaction.response.send_message(
+            "Incorrect params! Example of a proper command: `/fetch param: Tornado models: 2024 Absolutely Calibrated zulu: 18z`",
+            ephemeral=True,
+        )
+        checkOldFolders()
+        return
 
-        timeRange = file.split("_")[-1].replace(".png", "")
+    # Validate models argument
+    if models not in allowed_models:
+        await interaction.response.send_message(
+            "Invalid models param! Must be one of: 2024, 2024abs, 2022, 2022abs; or it can be left empty.",
+            ephemeral=True,
+        )
+        checkOldFolders()
+        return
 
-        # Checks if the file is the correct to what the user wants, and if so, adds it to a list to send later.
-        acceptableArgs = ["sig", "life", "tor", "wind", "hail"]
-
-        # TODO: This "extras" for a name should really be renamed, alongside other things. But I have not really been thinking of better names. TL;DR: Change names of variables to something more accurate.
-
-        extras = []
-        notExtra = "sig"
-
-        if args[0] in acceptableArgs:
-            extras = [abreviations[f"{args[0]}"], ""]
-
-        if args[0] == "sig":
-            notExtra = "?"
-
+    # Validate zulu argument if provided
+    # If zulu is None or empty string, use current UTC to determine zulu_hour
+    if not zulu:  # covers None and empty string
         try:
-            extras[1] = abreviations[f"{args[1]}"]
+            utc_now = await getUTCTime()
         except Exception as e:
+            await interaction.response.send_message(
+                f"getUTCTime error: {e}", ephemeral=True
+            )
+            return
+        hour = utc_now.hour
+        # Pick the most recent valid zulu time <= current hour
+        if 13 <= hour < 18:
+            zulu_hour = 12
+        elif 0 <= hour < 10:
+            zulu_hour = 18
+        elif 18 <= hour < 24:
+            zulu_hour = 18
+        else:
+            zulu_hour = 0
+    else:
+        if zulu not in allowed_zulu:
+            await interaction.response.send_message(
+                "Invalid zulu time! Must be one of: 0, 12, 18.",
+                ephemeral=True,
+            )
+            checkOldFolders()
+            return
+        zulu_hour = int(zulu)
+
+    # Check cooldown
+    remaining = (
+        cooldown["last_used"] + cooldown["cooldown"] - datetime.now().timestamp()
+    )
+    if remaining > 0:
+        await interaction.response.send_message(
+            f"Please wait {remaining:.1f} seconds before using this command again.",
+            ephemeral=True,
+        )
+        checkOldFolders()
+        return
+
+    await interaction.response.send_message("Fetching... please wait.", ephemeral=True)
+
+    # Set model, extra, doNotInclude based on models param
+    model = model_dict[models]["model"] if models in model_dict else ""
+    extra = model_dict[models]["extra"] if models in model_dict else ""
+    doNotInclude = model_dict[models]["notExtra"] if models in model_dict else "?"
+
+    # If date is provided, fetch for the specified or calculated Zulu time
+    if fetch_date:
+        dt = fetch_date.replace(hour=zulu_hour)
+        try:
+            await log(
+                f"DEBUG: Calling getNadoCastData with dt={dt}, model={model}, extra={extra}, doNotInclude={doNotInclude}"
+            )
+            result = await getNadoCastData(dt, model, extra, doNotInclude)
+            await log(
+                f"DEBUG: getNadoCastData returned {len(result) if result else 'None'} results"
+            )
+        except Exception as e:
+            await interaction.followup.send(
+                f"getNadoCastData error: {e}", ephemeral=True
+            )
+            return
+        # Filter for the requested type (exact match, not substring)
+        type_str = abreviations.get(fetch_type, fetch_type)
+        # Only match files with _tornado_ and not sig_tornado for tor
+        if fetch_type == "tor":
+            files = [f for f in result if "_tornado_" in f and "sig_tornado" not in f]
+        else:
+            files = [f for f in result if f"_{type_str}_" in f]
+        if not files:
+            await interaction.followup.send(
+                f"No Nadocast images found for {fetch_type} on {date} at {zulu_hour}z.",
+                ephemeral=True,
+            )
+            return
+        discord_file = discord.File(files[0], filename="image.png")
+        embedData = createWeatherEmbed(
+            file=discord_file,
+            title=f"{fetch_type}",
+            description=f"Image for {date} @ {zulu_hour}z",
+            color=0x008000,
+        )
+        await interaction.followup.send(embed=embedData[0], file=discord_file)
+        cooldown["last_used"] = datetime.now().timestamp()
+        checkOldFolders()
+        return
+
+    # If no date, use current UTC and zulu_hour
+    utc_time = await getUTCTime()
+    dt = utc_time.replace(hour=zulu_hour)
+    try:
+        await log(
+            f"DEBUG: Calling getNadoCastData for current UTC dt={dt}, model={model}, extra={extra}, doNotInclude={doNotInclude}"
+        )
+        result = await getNadoCastData(dt, model, extra, doNotInclude)
+        await log(
+            f"DEBUG: getNadoCastData returned {len(result) if result else 'None'} results"
+        )
+    except Exception as e:
+        await interaction.followup.send(f"getNadoCastData error: {e}", ephemeral=True)
+        return
+
+    if result is None or len(result) == 0:
+        await log(
+            f"Error: No images found for {zulu_hour}Z, current UTC is {utc_time.hour}z."
+        )
+        await interaction.followup.send(
+            f"It appears Nadocast has not put out the new images for this time range ({zulu_hour}z)! Please try again in a minute.",
+            ephemeral=True,
+        )
+        cooldown["last_used"] = datetime.now().timestamp()
+        checkOldFolders()
+        return
+
+    files = []
+    acceptableArgs = ["sig", "life", "tor", "wind", "hail"]
+    extras = []
+    notExtra = "sig"
+
+    if fetch_type in acceptableArgs:
+        extras = [abreviations.get(fetch_type, fetch_type), ""]
+    if fetch_type == "sig":
+        notExtra = "?"
+
+    if param:
+        try:
+            extras[1] = abreviations.get(param, param)
+        except Exception:
             pass
 
-        # The list of files to send
-        if (
-            f"{extras[0]}_{extras[1]}" in file
-            and timeRange in validD1TimeRanges
-            and notExtra not in file
-        ):
-            files.append(discord.File(file, filename="image.png"))
-            # Also for debug (the line below)
-            debug.append(file)
-            continue
+    for file in result:
+        timeRange = file.split("_")[-1].replace(".png", "")
+        # Only match files with _tornado_ and not sig_tornado for tor
+        if fetch_type == "tor":
+            if (
+                "_tornado_" in file
+                and "sig_tornado" not in file
+                and timeRange in validD1TimeRanges
+            ):
+                files.append(file)
+        else:
+            if (
+                f"{extras[0]}_{extras[1]}" in file
+                and timeRange in validD1TimeRanges
+                and notExtra not in file
+            ):
+                files.append(file)
 
-    # This is never triggered, but if it is, something went wrong.
     if len(files) == 0:
-        return await ctx.send(
-            "It appears Nadocast has not put out the new images for this time range! Please try again in a minute."
+        await interaction.followup.send(
+            "It appears Nadocast has not put out the new images for this time range! Please try again in a minute.",
+            ephemeral=True,
         )
+        checkOldFolders()
+        return
 
-    # can be removed, I think, should just be for debugging
-    debug.sort()
-
-    # This text will be displayed in the embed
-    text = ""
-    # Default color is green, as it's good
+    text = f"Here are the images for {zulu_hour}z!"
     hexcode = 0x008000
 
-    if f"{timeNow}z" in result[0]:
-        text = f"Here are the images for {timeNow}z!"
-    else:
-        UTC = UTC - timedelta(hours=6)
-
-        hour = int(UTC.strftime("%H"))
-
-        if hour < 12:
-            hour = 0
-        elif 12 <= hour < 18:
-            hour = 12
-        elif 18 <= hour < 24:
-            hour = 18
-        text = f"Sorry! It appears Nadocast hasn't uploaded the images for {
-            timeNow}z, here are {hour}z's instead!"
-        # Update our hexcode to yellow to note a "warning" that it's not the current time.
-        hexcode = 0xFFFF00
-
+    discord_file = discord.File(files[0], filename="image.png")
     embedData = createWeatherEmbed(
-        file=files[0], title=f"{"".join(args)}", description=text, color=hexcode
+        file=discord_file,
+        title=f"{fetch_type} {param or ''}",
+        description=text,
+        color=hexcode,
     )
 
-    await ctx.send(embed=embedData[0], files=[embedData[1]])
-
-    await log("Removing Nadocast Folder")
+    await interaction.followup.send(embed=embedData[0], file=discord_file)
+    cooldown["last_used"] = datetime.now().timestamp()
     checkOldFolders()
-
-    # Debug for the files we return, uncomment if you want to see the files we are returning in logs/general.log
-    # await log("Files: {\n", "\n".join(debug), "\n}")
 
 
 # Run the bot
@@ -381,19 +530,4 @@ if __name__ == "__main__":
     if type(TOKEN) == type(None) or len(TOKEN) == 0:
         print("Please follow the readme to setup the bot!")
     else:
-
-        # Sets the model and extra from .env and stores it to client.models (ctx.bot.models)
-        model = ""
-        extra = ""
-        setModel = os.getenv("MODELS")
-        model = models[f"{setModel}"]["model"]
-        extra = models[f"{setModel}"]["extra"]
-        notExtra = models[f"{setModel}"]["notExtra"]
-
-        # If they leave it blank, we will fetch all models.
-        if model == "":
-            extra = ""
-            notExtra = "?"
-
-        client.models = {"model": model, "extra": extra, "doNotInclude": notExtra}
         client.run(TOKEN)
