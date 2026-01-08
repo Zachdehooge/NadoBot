@@ -1,11 +1,12 @@
+import asyncio
 import io
 from datetime import date
-
 import discord
+import feedparser
 from dateutil import parser
 from discord import app_commands
 from discord.app_commands import checks, CommandOnCooldown
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from features.functions import *
 
@@ -20,6 +21,118 @@ intents.message_content = True
 # Create bot client
 client = commands.Bot(command_prefix=None, intents=intents)
 
+RSS_URL = "https://weather.im/iembot-rss/room/botstalk.xml"
+CHECK_INTERVAL = 1
+CHANNEL_ID = None
+posted_items = set()
+
+
+def parse_weather_alert(entry):
+    """Parse RSS entry and create Discord embed"""
+    title = entry.get('title', 'Weather Alert')
+    link = entry.get('link', '')
+    description = entry.get('description', '')
+    pub_date = entry.get('published', '')
+
+    # Truncate title if too long (Discord limit is 256 characters)
+    if len(title) > 256:
+        title = title[:253] + "..."
+
+    # Create embed
+    embed = discord.Embed(
+        title=title,
+        url=link,
+        color=discord.Color.red(),
+        timestamp=datetime.strptime(pub_date, '%a, %d %b %Y %H:%M:%S %z') if pub_date else datetime.now()
+    )
+
+    # Extract clean description (remove CDATA and pre tags)
+    clean_desc = description.replace('<![CDATA[', '').replace(']]>', '')
+    clean_desc = clean_desc.replace('<pre>', '').replace('</pre>', '').strip()
+
+    # Truncate if too long (Discord limit is 4096 chars)
+    if len(clean_desc) > 4000:
+        clean_desc = clean_desc[:4000] + "..."
+
+    embed.description = f"```\n{clean_desc}\n```"
+    embed.set_footer(text="Weather Alert System")
+
+    return embed
+
+
+def is_severe_weather_warning(title):
+    """Check if the alert is a Severe Thunderstorm or Tornado Warning"""
+    title_lower = title.lower()
+    return ('severe thunderstorm warning' in title_lower or
+            'tornado warning' in title_lower)
+
+
+@tasks.loop(minutes=CHECK_INTERVAL)
+async def check_rss_feed():
+    """Check RSS feed for new items"""
+    global CHANNEL_ID
+
+    if CHANNEL_ID is None:
+        return  # No channel set yet
+
+    try:
+        channel = client.get_channel(CHANNEL_ID)
+        if not channel:
+            print(f"Channel {CHANNEL_ID} not found")
+            return
+
+        # Parse RSS feed
+        feed = feedparser.parse(RSS_URL)
+
+        # Process entries (newest first)
+        for entry in reversed(feed.entries):
+            title = entry.get('title', '')
+
+            # Filter: only post severe thunderstorm and tornado warnings
+            if not is_severe_weather_warning(title):
+                continue
+
+            # Use link as unique identifier
+            item_id = entry.get('link', '')
+
+            if item_id and item_id not in posted_items:
+                # Create and send embed
+                embed = parse_weather_alert(entry)
+                await channel.send(embed=embed)
+
+                # Mark as posted
+                posted_items.add(item_id)
+                print(f"Posted alert: {entry.get('title', 'Unknown')}")
+
+                # Avoid rate limiting
+                await asyncio.sleep(1)
+
+        # Keep set size manageable (keep last 100 items)
+        if len(posted_items) > 100:
+            posted_items.clear()
+
+    except Exception as e:
+        print(f"Error checking RSS feed: {e}")
+
+
+@check_rss_feed.before_loop
+async def before_check_rss():
+    """Wait until client is ready before starting the loop"""
+    await client.wait_until_ready()
+    print("Starting RSS feed checker...")
+
+
+def mark_existing_alerts_as_posted():
+    """Mark all current RSS entries as already posted to avoid spam"""
+    try:
+        feed = feedparser.parse(RSS_URL)
+        for entry in feed.entries:
+            item_id = entry.get('link', '')
+            if item_id:
+                posted_items.add(item_id)
+        print(f"Marked {len(feed.entries)} existing alerts as already posted")
+    except Exception as e:
+        print(f"Error marking existing alerts: {e}")
 
 # Events
 @client.event
@@ -28,7 +141,8 @@ async def on_ready() -> None:
     await client.change_presence(activity=activity)
     await client.tree.sync()
     print(f"Logged in as {client.user}")
-
+    print(f'Monitoring RSS feed: {RSS_URL}')
+    check_rss_feed.start()
 
 model_dict = {
     "2024": {"model": "_2024_", "extra": "", "notExtra": "abs"},
@@ -100,6 +214,37 @@ async def on_app_command_error(interaction: discord.Interaction, error):
             ephemeral=True,
         )
 
+@client.tree.command(name="setchannel", description="Set the channel for weather alerts")
+@app_commands.describe(channel="channel ID")
+async def set_channel(interaction: discord.Interaction, channel: discord.TextChannel):
+    global CHANNEL_ID
+    CHANNEL_ID = channel.id
+    await interaction.response.send_message(
+        f"✅ Weather alerts will now be posted to {channel.mention}",
+        ephemeral=True
+    )
+    print(f"Channel set to: {channel.name} (ID: {channel.id})")
+
+@client.tree.command(name="currentchannel", description="Show the current alert channel")
+@app_commands.default_permissions(administrator=True)
+async def current_channel(interaction: discord.Interaction):
+    if CHANNEL_ID is None:
+        await interaction.response.send_message(
+            "⚠️ No channel is currently set. Use `/setchannel` to set one.",
+            ephemeral=True
+        )
+    else:
+        channel = client.get_channel(CHANNEL_ID)
+        if channel:
+            await interaction.response.send_message(
+                f"📍 Current alert channel: {channel.mention}",
+                ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                f"⚠️ Channel ID {CHANNEL_ID} is set but not found.",
+                ephemeral=True
+            )
 
 @client.tree.command(
     name="getutc",
