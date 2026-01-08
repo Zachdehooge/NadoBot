@@ -25,7 +25,6 @@ async def getUTCTime() -> datetime:
 
     return utc_time
 
-
 async def getNadoCastData(
     time: datetime, models: str, extra: str, doNotInclude: str
 ) -> list[str]:

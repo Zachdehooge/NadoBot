@@ -92,7 +92,6 @@ async def getoffice(interaction: discord.Interaction, location: str):
         f"The NWS Office for **{location}** is: **{office}**"
     )
 
-
 @client.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error):
     if isinstance(error, CommandOnCooldown):
@@ -109,7 +108,6 @@ async def on_app_command_error(interaction: discord.Interaction, error):
 async def getUTC(interaction: discord.Interaction) -> None:
     utc_time = await getUTCTime()
     await interaction.response.send_message(utc_time.strftime("%H:%M %m-%d-%y"))
-
 
 @client.tree.command(
     name="getoutlook",
