@@ -1,8 +1,4 @@
 import io
-import json
-import os
-import re
-import time
 from datetime import date
 
 import discord
@@ -11,7 +7,7 @@ from discord import app_commands
 from discord.app_commands import checks, CommandOnCooldown
 from discord.ext import commands
 
-from functions import *
+from features.functions import *
 
 # Retrieve token from .env
 load_dotenv()
