@@ -27,7 +27,7 @@ jobs:
 
     - name: Format with Black
       run: |
-        black ./functions.py
+        black ./features/functions.py
         black ./main.py
       
 
