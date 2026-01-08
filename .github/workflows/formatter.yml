@@ -37,4 +37,4 @@ jobs:
         commit_message: "Apply Black formatting"
         file_pattern: |
           ./main.py
-          ./functions.py
+          ./features/functions.py
