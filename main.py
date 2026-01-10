@@ -1,5 +1,6 @@
 import asyncio
 import io
+import json
 from datetime import date
 import discord
 import feedparser
@@ -22,33 +23,79 @@ intents.message_content = True
 client = commands.Bot(command_prefix=None, intents=intents)
 
 RSS_URL = "https://weather.im/iembot-rss/room/botstalk.xml"
-CHECK_INTERVAL = 1
 CHANNEL_ID = None
-posted_items = set()
+CHECK_INTERVAL = 1
+CONFIG_FILE = "bot_config.json"
+
+# Changed: Now stores guild_id -> channel_id mapping
+guild_channels = {}  # {guild_id: channel_id}
+
+# Changed: Track posted items per guild to avoid cross-posting
+posted_items = {}  # {guild_id: set of posted item IDs}
+
+
+def load_config():
+    """Load configuration from file"""
+    global guild_channels, posted_items
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r") as f:
+                config = json.load(f)
+                # Load guild -> channel mapping
+                guild_channels = {
+                    int(k): v for k, v in config.get("guild_channels", {}).items()
+                }
+                print(f"Loaded {len(guild_channels)} guild configurations")
+                for guild_id, channel_id in guild_channels.items():
+                    print(f"  Guild {guild_id} -> Channel {channel_id}")
+                    # Initialize posted_items set for each guild
+                    if guild_id not in posted_items:
+                        posted_items[guild_id] = set()
+        except Exception as e:
+            print(f"Error loading config: {e}")
+    else:
+        print("No config file found, starting fresh")
+
+
+def save_config():
+    """Save configuration to file"""
+    try:
+        config = {"guild_channels": {str(k): v for k, v in guild_channels.items()}}
+        with open(CONFIG_FILE, "w") as f:
+            json.dump(config, f, indent=2)
+        print(f"Saved configuration for {len(guild_channels)} guilds")
+    except Exception as e:
+        print(f"Error saving config: {e}")
 
 
 def parse_weather_alert(entry):
     """Parse RSS entry and create Discord embed"""
-    title = entry.get('title', 'Weather Alert')
-    link = entry.get('link', '')
-    description = entry.get('description', '')
-    pub_date = entry.get('published', '')
+    title = entry.get("title", "Weather Alert")
+    link = entry.get("link", "")
+    description = entry.get("description", "")
+    pub_date = entry.get("published", "")
 
     # Truncate title if too long (Discord limit is 256 characters)
     if len(title) > 256:
         title = title[:253] + "..."
 
     # Create embed
+    try:
+        timestamp = (
+            datetime.strptime(pub_date, "%a, %d %b %Y %H:%M:%S %z")
+            if pub_date
+            else datetime.now()
+        )
+    except:
+        timestamp = datetime.now()
+
     embed = discord.Embed(
-        title=title,
-        url=link,
-        color=discord.Color.red(),
-        timestamp=datetime.strptime(pub_date, '%a, %d %b %Y %H:%M:%S %z') if pub_date else datetime.now()
+        title=title, url=link, color=discord.Color.red(), timestamp=timestamp
     )
 
     # Extract clean description (remove CDATA and pre tags)
-    clean_desc = description.replace('<![CDATA[', '').replace(']]>', '')
-    clean_desc = clean_desc.replace('<pre>', '').replace('</pre>', '').strip()
+    clean_desc = description.replace("<![CDATA[", "").replace("]]>", "")
+    clean_desc = clean_desc.replace("<pre>", "").replace("</pre>", "").strip()
 
     # Truncate if too long (Discord limit is 4096 chars)
     if len(clean_desc) > 4000:
@@ -63,56 +110,85 @@ def parse_weather_alert(entry):
 def is_severe_weather_warning(title):
     """Check if the alert is a Severe Thunderstorm or Tornado Warning"""
     title_lower = title.lower()
-    return ('severe thunderstorm warning' in title_lower or
-            'tornado warning' in title_lower)
+    return (
+        "severe thunderstorm warning" in title_lower or "tornado warning" in title_lower
+    )
 
 
 @tasks.loop(minutes=CHECK_INTERVAL)
 async def check_rss_feed():
-    """Check RSS feed for new items"""
-    global CHANNEL_ID
-
-    if CHANNEL_ID is None:
-        return  # No channel set yet
+    """Check RSS feed for new items across all configured guilds"""
+    if not guild_channels:
+        print("RSS Check: No guilds configured, skipping...")
+        return
 
     try:
-        channel = client.get_channel(CHANNEL_ID)
-        if not channel:
-            print(f"Channel {CHANNEL_ID} not found")
-            return
-
-        # Parse RSS feed
+        # Parse RSS feed once
         feed = feedparser.parse(RSS_URL)
 
-        # Process entries (newest first)
-        for entry in reversed(feed.entries):
-            title = entry.get('title', '')
+        if not feed.entries:
+            print("RSS Check: No entries found in feed")
+            return
 
-            # Filter: only post severe thunderstorm and tornado warnings
-            if not is_severe_weather_warning(title):
+        print(f"RSS Check: Found {len(feed.entries)} total entries")
+
+        # Process each configured guild
+        for guild_id, channel_id in guild_channels.items():
+            channel = client.get_channel(channel_id)
+            if not channel:
+                print(f"RSS Check: Channel {channel_id} not found for guild {guild_id}")
                 continue
 
-            # Use link as unique identifier
-            item_id = entry.get('link', '')
+            # Ensure this guild has a posted_items set
+            if guild_id not in posted_items:
+                posted_items[guild_id] = set()
 
-            if item_id and item_id not in posted_items:
-                # Create and send embed
-                embed = parse_weather_alert(entry)
-                await channel.send(embed=embed)
+            new_alerts_count = 0
 
-                # Mark as posted
-                posted_items.add(item_id)
-                print(f"Posted alert: {entry.get('title', 'Unknown')}")
+            # Process entries (newest first)
+            for entry in reversed(feed.entries):
+                title = entry.get("title", "")
 
-                # Avoid rate limiting
-                await asyncio.sleep(1)
+                # Filter: only post severe thunderstorm and tornado warnings
+                if not is_severe_weather_warning(title):
+                    continue
 
-        # Keep set size manageable (keep last 100 items)
-        if len(posted_items) > 100:
-            posted_items.clear()
+                # Use link as unique identifier
+                item_id = entry.get("link", "")
+
+                # Check if this guild has already posted this item
+                if item_id and item_id not in posted_items[guild_id]:
+                    try:
+                        # Create and send embed
+                        embed = parse_weather_alert(entry)
+                        await channel.send(embed=embed)
+
+                        # Mark as posted for this guild
+                        posted_items[guild_id].add(item_id)
+                        new_alerts_count += 1
+                        print(f"Posted alert to guild {guild_id}: {title[:50]}...")
+
+                        # Avoid rate limiting
+                        await asyncio.sleep(1)
+                    except Exception as e:
+                        print(f"Error posting to guild {guild_id}: {e}")
+
+            if new_alerts_count > 0:
+                print(
+                    f"RSS Check: Posted {new_alerts_count} new alerts to guild {guild_id}"
+                )
+
+            # Keep set size manageable per guild (keep last 100 items)
+            if len(posted_items[guild_id]) > 100:
+                posted_items_list = list(posted_items[guild_id])
+                posted_items[guild_id].clear()
+                posted_items[guild_id].update(posted_items_list[-100:])
 
     except Exception as e:
         print(f"Error checking RSS feed: {e}")
+        import traceback
+
+        traceback.print_exc()
 
 
 @check_rss_feed.before_loop
@@ -123,26 +199,67 @@ async def before_check_rss():
 
 
 def mark_existing_alerts_as_posted():
-    """Mark all current RSS entries as already posted to avoid spam"""
+    """Mark all current RSS entries as already posted to avoid spam on startup"""
     try:
         feed = feedparser.parse(RSS_URL)
-        for entry in feed.entries:
-            item_id = entry.get('link', '')
-            if item_id:
-                posted_items.add(item_id)
-        print(f"Marked {len(feed.entries)} existing alerts as already posted")
+        for guild_id in guild_channels.keys():
+            if guild_id not in posted_items:
+                posted_items[guild_id] = set()
+            for entry in feed.entries:
+                item_id = entry.get("link", "")
+                if item_id:
+                    posted_items[guild_id].add(item_id)
+        print(
+            f"Marked {len(feed.entries)} existing alerts as already posted for all guilds"
+        )
     except Exception as e:
         print(f"Error marking existing alerts: {e}")
+
+
+@tasks.loop(minutes=1)
+async def update_utc_status():
+    now_utc = datetime.now(timezone.utc).strftime("%H:%M UTC")
+    activity = discord.Activity(
+        type=discord.ActivityType.watching,
+        name=f"{now_utc}",
+    )
+    await client.change_presence(activity=activity)
+
+
+@update_utc_status.before_loop
+async def before_update_utc_status():
+    await client.wait_until_ready()
+
 
 # Events
 @client.event
 async def on_ready() -> None:
-    activity = discord.Activity(type=discord.ActivityType.listening, name="/help")
-    await client.change_presence(activity=activity)
+    # Load saved configurations
+    load_config()
+
     await client.tree.sync()
     print(f"Logged in as {client.user}")
-    print(f'Monitoring RSS feed: {RSS_URL}')
+    print(f"Monitoring RSS feed: {RSS_URL}")
+    print(f"Configured for {len(guild_channels)} guilds")
+
+    # Mark existing alerts to avoid spam on startup
+    mark_existing_alerts_as_posted()
+
     check_rss_feed.start()
+    update_utc_status.start()
+
+
+@client.event
+async def on_guild_remove(guild):
+    """Clean up when bot is removed from a guild"""
+    global guild_channels
+    if guild.id in guild_channels:
+        del guild_channels[guild.id]
+        if guild.id in posted_items:
+            del posted_items[guild.id]
+        save_config()
+        print(f"Removed configuration for guild {guild.id} ({guild.name})")
+
 
 model_dict = {
     "2024": {"model": "_2024_", "extra": "", "notExtra": "abs"},
@@ -206,6 +323,7 @@ async def getoffice(interaction: discord.Interaction, location: str):
         f"The NWS Office for **{location}** is: **{office}**"
     )
 
+
 @client.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error):
     if isinstance(error, CommandOnCooldown):
@@ -214,37 +332,82 @@ async def on_app_command_error(interaction: discord.Interaction, error):
             ephemeral=True,
         )
 
-@client.tree.command(name="setchannel", description="Set the channel for weather alerts")
-@app_commands.describe(channel="channel ID")
-async def set_channel(interaction: discord.Interaction, channel: discord.TextChannel):
-    global CHANNEL_ID
-    CHANNEL_ID = channel.id
-    await interaction.response.send_message(
-        f"✅ Weather alerts will now be posted to {channel.mention}",
-        ephemeral=True
-    )
-    print(f"Channel set to: {channel.name} (ID: {channel.id})")
 
-@client.tree.command(name="currentchannel", description="Show the current alert channel")
+# Commands
+@client.tree.command(
+    name="setchannel", description="Set the channel for weather alerts"
+)
+@app_commands.describe(channel="The channel to send alerts to")
+@app_commands.default_permissions(administrator=True)
+async def set_channel(interaction: discord.Interaction, channel: discord.TextChannel):
+    global guild_channels
+
+    guild_id = interaction.guild_id
+    guild_channels[guild_id] = channel.id
+
+    # Initialize posted_items for this guild if needed
+    if guild_id not in posted_items:
+        posted_items[guild_id] = set()
+
+    save_config()
+
+    await interaction.response.send_message(
+        f"✅ Weather alerts will now be posted to {channel.mention} in this server.",
+        ephemeral=True,
+    )
+    print(
+        f"Channel set for guild {guild_id} ({interaction.guild.name}): {channel.name} (ID: {channel.id})"
+    )
+
+
+@client.tree.command(
+    name="currentchannel", description="Show the current alert channel"
+)
 @app_commands.default_permissions(administrator=True)
 async def current_channel(interaction: discord.Interaction):
-    if CHANNEL_ID is None:
+    guild_id = interaction.guild_id
+
+    if guild_id not in guild_channels:
         await interaction.response.send_message(
-            "⚠️ No channel is currently set. Use `/setchannel` to set one.",
-            ephemeral=True
+            "⚠️ No channel is currently set for this server. Use `/setchannel` to set one.",
+            ephemeral=True,
         )
     else:
-        channel = client.get_channel(CHANNEL_ID)
+        channel_id = guild_channels[guild_id]
+        channel = client.get_channel(channel_id)
         if channel:
             await interaction.response.send_message(
-                f"📍 Current alert channel: {channel.mention}",
-                ephemeral=True
+                f"📍 Current alert channel: {channel.mention}", ephemeral=True
             )
         else:
             await interaction.response.send_message(
-                f"⚠️ Channel ID {CHANNEL_ID} is set but not found.",
-                ephemeral=True
+                f"⚠️ Channel ID {channel_id} is set but not found. It may have been deleted.",
+                ephemeral=True,
             )
+
+
+@client.tree.command(
+    name="removechannel", description="Remove weather alerts from this server"
+)
+@app_commands.default_permissions(administrator=True)
+async def remove_channel(interaction: discord.Interaction):
+    global guild_channels
+    guild_id = interaction.guild_id
+
+    if guild_id in guild_channels:
+        del guild_channels[guild_id]
+        if guild_id in posted_items:
+            del posted_items[guild_id]
+        save_config()
+        await interaction.response.send_message(
+            "✅ Weather alerts have been disabled for this server.", ephemeral=True
+        )
+        print(f"Removed channel configuration for guild {guild_id}")
+    else:
+        await interaction.response.send_message(
+            "⚠️ No channel was configured for this server.", ephemeral=True
+        )
+
 
 @client.tree.command(
     name="getutc",
@@ -253,6 +416,7 @@ async def current_channel(interaction: discord.Interaction):
 async def getUTC(interaction: discord.Interaction) -> None:
     utc_time = await getUTCTime()
     await interaction.response.send_message(utc_time.strftime("%H:%M %m-%d-%y"))
+
 
 @client.tree.command(
     name="getoutlook",

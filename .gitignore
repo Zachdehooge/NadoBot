@@ -167,3 +167,5 @@ Nadocast
 # Logs wrote by us
 logs/
 *.png
+systemctlstart.sh
+systemctlstop.sh
