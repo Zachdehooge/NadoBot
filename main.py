@@ -405,7 +405,7 @@ async def remove_channel(interaction: discord.Interaction):
         print(f"Removed channel configuration for guild {guild_id}")
     else:
         await interaction.response.send_message(
-            "⚠️ No channel was configured for this server.", ephemeral=True
+            "No channel was configured for this server.", ephemeral=True
         )
 
 
