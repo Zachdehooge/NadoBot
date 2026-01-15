@@ -369,7 +369,7 @@ async def current_channel(interaction: discord.Interaction):
 
     if guild_id not in guild_channels:
         await interaction.response.send_message(
-            "⚠️ No channel is currently set for this server. Use `/setchannel` to set one.",
+            "No channel is currently set for this server. Use `/setchannel` to set one.",
             ephemeral=True,
         )
     else:
@@ -377,11 +377,11 @@ async def current_channel(interaction: discord.Interaction):
         channel = client.get_channel(channel_id)
         if channel:
             await interaction.response.send_message(
-                f"📍 Current alert channel: {channel.mention}", ephemeral=True
+                f"Current alert channel: {channel.mention}", ephemeral=True
             )
         else:
             await interaction.response.send_message(
-                f"⚠️ Channel ID {channel_id} is set but not found. It may have been deleted.",
+                f"Channel ID {channel_id} is set but not found. It may have been deleted.",
                 ephemeral=True,
             )
 
