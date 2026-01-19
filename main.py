@@ -11,7 +11,6 @@ from discord.ext import commands, tasks
 
 from features.functions import *
 
-# Retrieve token from .env
 load_dotenv()
 TOKEN: str = os.getenv("TOKEN")
 
@@ -27,11 +26,9 @@ CHANNEL_ID = None
 CHECK_INTERVAL = 1
 CONFIG_FILE = "bot_config.json"
 
-# Changed: Now stores guild_id -> channel_id mapping
-guild_channels = {}  # {guild_id: channel_id}
+guild_channels = {}
 
-# Changed: Track posted items per guild to avoid cross-posting
-posted_items = {}  # {guild_id: set of posted item IDs}
+posted_items = {}
 
 
 def load_config():
@@ -75,7 +72,6 @@ def parse_weather_alert(entry):
     description = entry.get("description", "")
     pub_date = entry.get("published", "")
 
-    # Truncate title if too long (Discord limit is 256 characters)
     if len(title) > 256:
         title = title[:253] + "..."
 
@@ -111,7 +107,10 @@ def is_severe_weather_warning(title):
     """Check if the alert is a Severe Thunderstorm or Tornado Warning"""
     title_lower = title.lower()
     return (
-        "severe thunderstorm warning" in title_lower or "tornado warning" in title_lower
+        "severe thunderstorm warning" in title_lower
+        or "tornado warning" in title_lower
+        or "winter storm warning" in title_lower
+        or "tornado watch" in title_lower
     )
 
 
@@ -352,7 +351,7 @@ async def set_channel(interaction: discord.Interaction, channel: discord.TextCha
     save_config()
 
     await interaction.response.send_message(
-        f"✅ Weather alerts will now be posted to {channel.mention} in this server.",
+        f"Weather alerts will now be posted to {channel.mention} in this server.",
         ephemeral=True,
     )
     print(
@@ -400,7 +399,7 @@ async def remove_channel(interaction: discord.Interaction):
             del posted_items[guild_id]
         save_config()
         await interaction.response.send_message(
-            "✅ Weather alerts have been disabled for this server.", ephemeral=True
+            "Weather alerts have been disabled for this server.", ephemeral=True
         )
         print(f"Removed channel configuration for guild {guild_id}")
     else:
