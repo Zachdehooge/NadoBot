@@ -109,6 +109,7 @@ def is_severe_weather_warning(title):
     return (
         "severe thunderstorm warning" in title_lower
         or "tornado warning" in title_lower
+        or "severe thunderstorm watch" in title_lower
         or "winter storm warning" in title_lower
         or "tornado watch" in title_lower
     )
