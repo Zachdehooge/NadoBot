@@ -1,6 +1,7 @@
 import asyncio
 import io
 import json
+from collections import deque
 from datetime import date
 import discord
 import feedparser
@@ -8,6 +9,7 @@ from dateutil import parser
 from discord import app_commands
 from discord.app_commands import checks, CommandOnCooldown
 from discord.ext import commands, tasks
+from urllib.parse import urlparse, parse_qs
 
 from features.functions import *
 
@@ -30,10 +32,15 @@ guild_channels = {}
 
 posted_items = {}
 
+# Global PID tracking system
+global_seen_pids = deque(maxlen=300)  # Track last 300 PIDs globally
+MAX_TRACKED_PIDS = 300
+DEBUG_NEW_ALERTS = False
+
 
 def load_config():
     """Load configuration from file"""
-    global guild_channels, posted_items
+    global guild_channels, posted_items, global_seen_pids
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r") as f:
@@ -52,6 +59,9 @@ def load_config():
             print(f"Error loading config: {e}")
     else:
         print("No config file found, starting fresh")
+    
+    # Initialize global PIDs tracking
+    global_seen_pids = deque(maxlen=MAX_TRACKED_PIDS)
 
 
 def save_config():
@@ -103,6 +113,23 @@ def parse_weather_alert(entry):
     return embed
 
 
+def extract_pid_from_link(link):
+    """Extract unique PID from RSS link URL"""
+    try:
+        if not link:
+            return None
+        
+        # Parse URL and extract 'pid' parameter
+        parsed = urlparse(link)
+        params = parse_qs(parsed.query)
+        pid = params.get('pid', [None])[0]
+        
+        return pid if pid else None
+    except Exception as e:
+        print(f"Error extracting PID from link {link}: {e}")
+        return None
+
+
 def is_severe_weather_warning(title):
     """Check if the alert is a Severe Thunderstorm or Tornado Warning"""
     title_lower = title.lower()
@@ -132,57 +159,78 @@ async def check_rss_feed():
 
         print(f"RSS Check: Found {len(feed.entries)} total entries")
 
-        # Process each configured guild
-        for guild_id, channel_id in guild_channels.items():
-            channel = client.get_channel(channel_id)
-            if not channel:
-                print(f"RSS Check: Channel {channel_id} not found for guild {guild_id}")
+        # Process entries in natural order (newest first from RSS)
+        new_alerts_count = 0
+
+        for entry in feed.entries:
+            title = entry.get("title", "")
+            
+            # Filter: only post severe thunderstorm and tornado warnings
+            if not is_severe_weather_warning(title):
                 continue
-
-            # Ensure this guild has a posted_items set
-            if guild_id not in posted_items:
-                posted_items[guild_id] = set()
-
-            new_alerts_count = 0
-
-            # Process entries (newest first)
-            for entry in reversed(feed.entries):
-                title = entry.get("title", "")
-
-                # Filter: only post severe thunderstorm and tornado warnings
-                if not is_severe_weather_warning(title):
+            
+            # Extract PID for reliable uniqueness check
+            link = entry.get("link", "")
+            pid = extract_pid_from_link(link)
+            
+            if not pid:
+                continue
+            
+            # Check if we've already processed this PID globally
+            if pid in global_seen_pids:
+                continue
+            
+            # This is a new alert, process it
+            print(f"NEW ALERT DETECTED: PID={pid}, Title={title[:50]}...")
+            
+            # Add to global tracking immediately to prevent race conditions
+            global_seen_pids.append(pid)
+            
+            # Process for each configured guild
+            for guild_id, channel_id in guild_channels.items():
+                channel = client.get_channel(channel_id)
+                if not channel:
+                    print(f"RSS Check: Channel {channel_id} not found for guild {guild_id}")
                     continue
-
-                # Use link as unique identifier
-                item_id = entry.get("link", "")
-
+                    
+                # Ensure this guild has a posted_items set
+                if guild_id not in posted_items:
+                    posted_items[guild_id] = set()
+                
                 # Check if this guild has already posted this item
-                if item_id and item_id not in posted_items[guild_id]:
+                if link not in posted_items[guild_id]:
                     try:
                         # Create and send embed
                         embed = parse_weather_alert(entry)
                         await channel.send(embed=embed)
-
+                        
                         # Mark as posted for this guild
-                        posted_items[guild_id].add(item_id)
+                        posted_items[guild_id].add(link)
                         new_alerts_count += 1
-                        print(f"Posted alert to guild {guild_id}: {title[:50]}...")
-
+                        
+                        if DEBUG_NEW_ALERTS:
+                            print(f"Posted alert to guild {guild_id}: {title[:50]}...")
+                        
                         # Avoid rate limiting
                         await asyncio.sleep(1)
                     except Exception as e:
                         print(f"Error posting to guild {guild_id}: {e}")
 
-            if new_alerts_count > 0:
-                print(
-                    f"RSS Check: Posted {new_alerts_count} new alerts to guild {guild_id}"
-                )
+        # Memory management after processing
+        for guild_id in guild_channels.keys():
+            # Per-guild memory management (keep last 100 links per guild)
+            if guild_id in posted_items:
+                if len(posted_items[guild_id]) > 100:
+                    posted_items_list = list(posted_items[guild_id])
+                    posted_items[guild_id].clear()
+                    posted_items[guild_id].update(posted_items_list[-100:])
 
-            # Keep set size manageable per guild (keep last 100 items)
-            if len(posted_items[guild_id]) > 100:
-                posted_items_list = list(posted_items[guild_id])
-                posted_items[guild_id].clear()
-                posted_items[guild_id].update(posted_items_list[-100:])
+        # Global PID memory management (handled automatically by deque maxlen)
+        if DEBUG_NEW_ALERTS:
+            print(f"Global PIDs tracked: {len(global_seen_pids)}/{MAX_TRACKED_PIDS}")
+
+        if new_alerts_count > 0:
+            print(f"RSS Check: Posted {new_alerts_count} new alerts across all guilds")
 
     except Exception as e:
         print(f"Error checking RSS feed: {e}")
@@ -202,16 +250,24 @@ def mark_existing_alerts_as_posted():
     """Mark all current RSS entries as already posted to avoid spam on startup"""
     try:
         feed = feedparser.parse(RSS_URL)
+        
+        # Initialize global PIDs from current feed
+        for entry in feed.entries:
+            pid = extract_pid_from_link(entry.get("link", ""))
+            if pid:
+                global_seen_pids.append(pid)
+        
+        # Initialize per-guild tracking (keep existing logic)
         for guild_id in guild_channels.keys():
             if guild_id not in posted_items:
                 posted_items[guild_id] = set()
             for entry in feed.entries:
-                item_id = entry.get("link", "")
-                if item_id:
-                    posted_items[guild_id].add(item_id)
-        print(
-            f"Marked {len(feed.entries)} existing alerts as already posted for all guilds"
-        )
+                link = entry.get("link", "")
+                if link:
+                    posted_items[guild_id].add(link)
+        
+        print(f"Marked {len(feed.entries)} existing alerts as already posted")
+        print(f"Global PIDs initialized: {len(global_seen_pids)}")
     except Exception as e:
         print(f"Error marking existing alerts: {e}")
 
