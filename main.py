@@ -46,20 +46,35 @@ def load_config():
             with open(CONFIG_FILE, "r") as f:
                 config = json.load(f)
                 # Load guild -> channel mapping
-                guild_channels = {
-                    int(k): v for k, v in config.get("guild_channels", {}).items()
-                }
-                print(f"Loaded {len(guild_channels)} guild configurations")
-                for guild_id, channel_id in guild_channels.items():
-                    print(f"  Guild {guild_id} -> Channel {channel_id}")
+                raw_config = config.get("guild_channels", {})
+                
+                # Handle both old format (guild_id: channel_id) and new format (guild_id: {"winter": id, "severe": id, "tornado": id})
+                guild_channels = {}
+                for k, v in raw_config.items():
+                    guild_id = int(k)
+                    if isinstance(v, dict):
+                        # New format
+                        guild_channels[guild_id] = v
+                        print(f"  Guild {guild_id} -> Winter: {v.get('winter')}, Severe: {v.get('severe')}, Tornado: {v.get('tornado')}")
+                    else:
+                        # Old format - migrate to new format with backward compatibility
+                        guild_channels[guild_id] = {
+                            "winter": v,
+                            "severe": v, 
+                            "tornado": v
+                        }
+                        print(f"  Guild {guild_id} -> Migrated old config to all alert types: Channel {v}")
+                    
                     # Initialize posted_items set for each guild
                     if guild_id not in posted_items:
                         posted_items[guild_id] = set()
+                
+                print(f"Loaded {len(guild_channels)} guild configurations")
         except Exception as e:
             print(f"Error loading config: {e}")
     else:
         print("No config file found, starting fresh")
-    
+
     # Initialize global PIDs tracking
     global_seen_pids = deque(maxlen=MAX_TRACKED_PIDS)
 
@@ -118,28 +133,74 @@ def extract_pid_from_link(link):
     try:
         if not link:
             return None
-        
+
         # Parse URL and extract 'pid' parameter
         parsed = urlparse(link)
         params = parse_qs(parsed.query)
-        pid = params.get('pid', [None])[0]
-        
+        pid = params.get("pid", [None])[0]
+
         return pid if pid else None
     except Exception as e:
         print(f"Error extracting PID from link {link}: {e}")
         return None
 
 
-def is_severe_weather_warning(title):
-    """Check if the alert is a Severe Thunderstorm or Tornado Warning"""
+def is_winter_alert(title):
+    """Check if the alert is winter-related"""
+    title_lower = title.lower()
+    return (
+        "winter storm warning" in title_lower
+        or "winter storm watch" in title_lower
+        or "winter weather advisory" in title_lower
+        or "blizzard warning" in title_lower
+        or "blizzard watch" in title_lower
+        or "ice storm warning" in title_lower
+        or "ice storm watch" in title_lower
+        or "heavy snow warning" in title_lower
+        or "snow squall warning" in title_lower
+        or "lake effect snow warning" in title_lower
+        or "lake effect snow advisory" in title_lower
+        or "freezing rain advisory" in title_lower
+        or "wind chill advisory" in title_lower
+        or "wind chill warning" in title_lower
+        or "winter" in title_lower
+        or "snow" in title_lower
+        or "ice" in title_lower
+        or "blizzard" in title_lower
+        or "freezing" in title_lower
+    )
+
+
+def is_severe_thunderstorm_alert(title):
+    """Check if the alert is severe thunderstorm-related"""
     title_lower = title.lower()
     return (
         "severe thunderstorm warning" in title_lower
-        or "tornado warning" in title_lower
         or "severe thunderstorm watch" in title_lower
-        or "winter storm warning" in title_lower
-        or "tornado watch" in title_lower
+        or "severe thunderstorm" in title_lower
+        or "severe weather statement" in title_lower
+        or "severe weather" in title_lower
+        or "svr" in title_lower
+        or "thunderstorm warning" in title_lower
+        or "thunderstorm watch" in title_lower
     )
+
+
+def is_tornado_alert(title):
+    """Check if the alert is tornado-related"""
+    title_lower = title.lower()
+    return (
+        "tornado warning" in title_lower
+        or "tornado watch" in title_lower
+        or "tornado emergency" in title_lower
+        or "tornado" in title_lower
+        or "tor" in title_lower
+    )
+
+
+def is_severe_weather_warning(title):
+    """Check if the alert matches any of our tracked alert types (kept for compatibility)"""
+    return is_winter_alert(title) or is_severe_thunderstorm_alert(title) or is_tornado_alert(title)
 
 
 @tasks.loop(minutes=CHECK_INTERVAL)
@@ -164,57 +225,81 @@ async def check_rss_feed():
 
         for entry in feed.entries:
             title = entry.get("title", "")
-            
-            # Filter: only post severe thunderstorm and tornado warnings
-            if not is_severe_weather_warning(title):
-                continue
-            
+
             # Extract PID for reliable uniqueness check
             link = entry.get("link", "")
             pid = extract_pid_from_link(link)
-            
+
             if not pid:
                 continue
-            
+
             # Check if we've already processed this PID globally
             if pid in global_seen_pids:
                 continue
-            
+
+            # Determine alert types this entry matches
+            alert_types = []
+            if is_winter_alert(title):
+                alert_types.append("winter")
+            if is_severe_thunderstorm_alert(title):
+                alert_types.append("severe")
+            if is_tornado_alert(title):
+                alert_types.append("tornado")
+
+            # Skip if no alert types match
+            if not alert_types:
+                continue
+
             # This is a new alert, process it
-            print(f"NEW ALERT DETECTED: PID={pid}, Title={title[:50]}...")
-            
+            print(f"NEW ALERT DETECTED: PID={pid}, Title={title[:50]}..., Types={alert_types}")
+
             # Add to global tracking immediately to prevent race conditions
             global_seen_pids.append(pid)
-            
+
             # Process for each configured guild
-            for guild_id, channel_id in guild_channels.items():
-                channel = client.get_channel(channel_id)
-                if not channel:
-                    print(f"RSS Check: Channel {channel_id} not found for guild {guild_id}")
-                    continue
-                    
+            for guild_id, channels_config in guild_channels.items():
                 # Ensure this guild has a posted_items set
                 if guild_id not in posted_items:
                     posted_items[guild_id] = set()
-                
-                # Check if this guild has already posted this item
-                if link not in posted_items[guild_id]:
+
+                # Check if this guild has already posted this item to any channel
+                if link in posted_items[guild_id]:
+                    continue
+
+                # Process each matching alert type
+                for alert_type in alert_types:
+                    # Check if this alert type is configured for this guild
+                    if alert_type not in channels_config:
+                        continue
+
+                    channel_id = channels_config[alert_type]
+                    if not channel_id:
+                        continue
+
+                    channel = client.get_channel(channel_id)
+                    if not channel:
+                        print(
+                            f"RSS Check: Channel {channel_id} not found for guild {guild_id} ({alert_type})"
+                        )
+                        continue
+
                     try:
                         # Create and send embed
                         embed = parse_weather_alert(entry)
                         await channel.send(embed=embed)
-                        
-                        # Mark as posted for this guild
+
+                        # Mark as posted for this guild (regardless of which channel it went to)
                         posted_items[guild_id].add(link)
                         new_alerts_count += 1
-                        
+
                         if DEBUG_NEW_ALERTS:
-                            print(f"Posted alert to guild {guild_id}: {title[:50]}...")
-                        
-                        # Avoid rate limiting
-                        await asyncio.sleep(1)
+                            print(f"Posted {alert_type} alert to guild {guild_id}: {title[:50]}...")
+
+                        # Avoid rate limiting between channels
+                        await asyncio.sleep(0.5)
+                        break  # Only post once per guild even if it matches multiple alert types
                     except Exception as e:
-                        print(f"Error posting to guild {guild_id}: {e}")
+                        print(f"Error posting {alert_type} alert to guild {guild_id}: {e}")
 
         # Memory management after processing
         for guild_id in guild_channels.keys():
@@ -250,14 +335,12 @@ def mark_existing_alerts_as_posted():
     """Mark all current RSS entries as already posted to avoid spam on startup"""
     try:
         feed = feedparser.parse(RSS_URL)
-        
-        # Initialize global PIDs from current feed
+
         for entry in feed.entries:
             pid = extract_pid_from_link(entry.get("link", ""))
             if pid:
                 global_seen_pids.append(pid)
-        
-        # Initialize per-guild tracking (keep existing logic)
+
         for guild_id in guild_channels.keys():
             if guild_id not in posted_items:
                 posted_items[guild_id] = set()
@@ -265,7 +348,7 @@ def mark_existing_alerts_as_posted():
                 link = entry.get("link", "")
                 if link:
                     posted_items[guild_id].add(link)
-        
+
         print(f"Marked {len(feed.entries)} existing alerts as already posted")
         print(f"Global PIDs initialized: {len(global_seen_pids)}")
     except Exception as e:
@@ -353,16 +436,39 @@ validD1TimeRanges = ["f01-23", "f02-23", "f02-17", "f01-17", "f12-35"]
 )
 async def help_slash(interaction: discord.Interaction):
     embed = discord.Embed(
-        title="Help",
+        title="Weather Alert Bot Help",
         description="List of available slash commands:",
         color=discord.Color.blurple(),
     )
-    for cmd in client.tree.get_commands():
+    
+    # Group commands by category
+    categories = {
+        "Alert Channel Configuration": [
+            "setchannel", "setwinterchannel", "setseverechannel", 
+            "settornadocommand", "currentalertchannels", "currentchannel", "removechannel"
+        ],
+        "Weather Information": [
+            "getoffice", "getutc", "getoutlook", "fetch"
+        ],
+        "Utility": [
+            "help"
+        ]
+    }
+    
+    all_commands = {cmd.name: cmd.description or "No description." for cmd in client.tree.get_commands()}
+    
+    for category, command_names in categories.items():
         embed.add_field(
-            name=f"/{cmd.name}",
-            value=cmd.description or "No description.",
-            inline=False,
+            name=f"📋 {category}",
+            value="\n".join(
+                f"**/{name}** - {all_commands.get(name, 'No description.')}"
+                for name in command_names
+                if name in all_commands
+            ),
+            inline=False
         )
+    
+    embed.set_footer(text="Use /help to see this message again. All channel configuration commands require administrator permissions.")
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
@@ -391,7 +497,7 @@ async def on_app_command_error(interaction: discord.Interaction, error):
 
 # Commands
 @client.tree.command(
-    name="setchannel", description="Set the channel for weather alerts"
+    name="setchannel", description="Set the channel for weather alerts (for all alert types)"
 )
 @app_commands.describe(channel="The channel to send alerts to")
 @app_commands.default_permissions(administrator=True)
@@ -399,7 +505,17 @@ async def set_channel(interaction: discord.Interaction, channel: discord.TextCha
     global guild_channels
 
     guild_id = interaction.guild_id
-    guild_channels[guild_id] = channel.id
+    
+    # Initialize guild config if not exists
+    if guild_id not in guild_channels:
+        guild_channels[guild_id] = {}
+    
+    # Set all alert types to this channel
+    guild_channels[guild_id] = {
+        "winter": channel.id,
+        "severe": channel.id,
+        "tornado": channel.id
+    }
 
     # Initialize posted_items for this guild if needed
     if guild_id not in posted_items:
@@ -408,16 +524,148 @@ async def set_channel(interaction: discord.Interaction, channel: discord.TextCha
     save_config()
 
     await interaction.response.send_message(
-        f"Weather alerts will now be posted to {channel.mention} in this server.",
+        f"All weather alerts will now be posted to {channel.mention} in this server.",
         ephemeral=True,
     )
     print(
-        f"Channel set for guild {guild_id} ({interaction.guild.name}): {channel.name} (ID: {channel.id})"
+        f"All channels set for guild {guild_id} ({interaction.guild.name}): {channel.name} (ID: {channel.id})"
     )
 
 
 @client.tree.command(
-    name="currentchannel", description="Show the current alert channel"
+    name="setwinterchannel", description="Set the channel for winter storm alerts"
+)
+@app_commands.describe(channel="The channel to send winter alerts to")
+@app_commands.default_permissions(administrator=True)
+async def set_winter_channel(interaction: discord.Interaction, channel: discord.TextChannel):
+    global guild_channels
+
+    guild_id = interaction.guild_id
+    
+    # Initialize guild config if not exists
+    if guild_id not in guild_channels:
+        guild_channels[guild_id] = {}
+    
+    guild_channels[guild_id]["winter"] = channel.id
+
+    # Initialize posted_items for this guild if needed
+    if guild_id not in posted_items:
+        posted_items[guild_id] = set()
+
+    save_config()
+
+    await interaction.response.send_message(
+        f"Winter weather alerts will now be posted to {channel.mention} in this server.",
+        ephemeral=True,
+    )
+    print(
+        f"Winter channel set for guild {guild_id} ({interaction.guild.name}): {channel.name} (ID: {channel.id})"
+    )
+
+
+@client.tree.command(
+    name="setseverechannel", description="Set the channel for severe thunderstorm alerts"
+)
+@app_commands.describe(channel="The channel to send severe thunderstorm alerts to")
+@app_commands.default_permissions(administrator=True)
+async def set_severe_channel(interaction: discord.Interaction, channel: discord.TextChannel):
+    global guild_channels
+
+    guild_id = interaction.guild_id
+    
+    # Initialize guild config if not exists
+    if guild_id not in guild_channels:
+        guild_channels[guild_id] = {}
+    
+    guild_channels[guild_id]["severe"] = channel.id
+
+    # Initialize posted_items for this guild if needed
+    if guild_id not in posted_items:
+        posted_items[guild_id] = set()
+
+    save_config()
+
+    await interaction.response.send_message(
+        f"Severe thunderstorm alerts will now be posted to {channel.mention} in this server.",
+        ephemeral=True,
+    )
+    print(
+        f"Severe channel set for guild {guild_id} ({interaction.guild.name}): {channel.name} (ID: {channel.id})"
+    )
+
+
+@client.tree.command(
+    name="settornadocommand", description="Set the channel for tornado alerts"
+)
+@app_commands.describe(channel="The channel to send tornado alerts to")
+@app_commands.default_permissions(administrator=True)
+async def set_tornado_channel(interaction: discord.Interaction, channel: discord.TextChannel):
+    global guild_channels
+
+    guild_id = interaction.guild_id
+    
+    # Initialize guild config if not exists
+    if guild_id not in guild_channels:
+        guild_channels[guild_id] = {}
+    
+    guild_channels[guild_id]["tornado"] = channel.id
+
+    # Initialize posted_items for this guild if needed
+    if guild_id not in posted_items:
+        posted_items[guild_id] = set()
+
+    save_config()
+
+    await interaction.response.send_message(
+        f"Tornado alerts will now be posted to {channel.mention} in this server.",
+        ephemeral=True,
+    )
+    print(
+        f"Tornado channel set for guild {guild_id} ({interaction.guild.name}): {channel.name} (ID: {channel.id})"
+    )
+
+
+@client.tree.command(
+    name="currentalertchannels", description="Show the current alert channels for all types"
+)
+@app_commands.default_permissions(administrator=True)
+async def current_alert_channels(interaction: discord.Interaction):
+    guild_id = interaction.guild_id
+
+    if guild_id not in guild_channels:
+        await interaction.response.send_message(
+            "No channels are currently set for this server. Use `/setwinterchannel`, `/setseverechannel`, or `/settornadocommand` to set channels.",
+            ephemeral=True,
+        )
+        return
+    
+    channels_config = guild_channels[guild_id]
+    embed = discord.Embed(
+        title="Current Alert Channels",
+        description="Configuration for weather alert channels in this server:",
+        color=discord.Color.blue()
+    )
+    
+    for alert_type, channel_id in channels_config.items():
+        channel = client.get_channel(channel_id)
+        if channel:
+            embed.add_field(
+                name=f"{alert_type.capitalize()} Alerts",
+                value=f"{channel.mention} (ID: {channel_id})",
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name=f"{alert_type.capitalize()} Alerts",
+                value=f"Channel ID {channel_id} not found (may have been deleted)",
+                inline=False
+            )
+    
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@client.tree.command(
+    name="currentchannel", description="Show the current alert channel (legacy command)"
 )
 @app_commands.default_permissions(administrator=True)
 async def current_channel(interaction: discord.Interaction):
@@ -429,21 +677,31 @@ async def current_channel(interaction: discord.Interaction):
             ephemeral=True,
         )
     else:
-        channel_id = guild_channels[guild_id]
-        channel = client.get_channel(channel_id)
-        if channel:
-            await interaction.response.send_message(
-                f"Current alert channel: {channel.mention}", ephemeral=True
-            )
+        # For legacy compatibility, show the first configured channel
+        channels_config = guild_channels[guild_id]
+        first_channel_id = next(iter(channels_config.values())) if channels_config else None
+        
+        if first_channel_id:
+            channel = client.get_channel(first_channel_id)
+            if channel:
+                await interaction.response.send_message(
+                    f"Current alert channel: {channel.mention} (Note: Use `/currentalertchannels` to see all configured channels)",
+                    ephemeral=True
+                )
+            else:
+                await interaction.response.send_message(
+                    f"Channel ID {first_channel_id} is set but not found. It may have been deleted.",
+                    ephemeral=True,
+                )
         else:
             await interaction.response.send_message(
-                f"Channel ID {channel_id} is set but not found. It may have been deleted.",
+                "No channels are configured. Use `/setwinterchannel`, `/setseverechannel`, or `/settornadocommand` to set channels.",
                 ephemeral=True,
             )
 
 
 @client.tree.command(
-    name="removechannel", description="Remove weather alerts from this server"
+    name="removechannel", description="Remove all weather alert channels from this server"
 )
 @app_commands.default_permissions(administrator=True)
 async def remove_channel(interaction: discord.Interaction):
@@ -456,12 +714,12 @@ async def remove_channel(interaction: discord.Interaction):
             del posted_items[guild_id]
         save_config()
         await interaction.response.send_message(
-            "Weather alerts have been disabled for this server.", ephemeral=True
+            "All weather alert channels have been disabled for this server.", ephemeral=True
         )
-        print(f"Removed channel configuration for guild {guild_id}")
+        print(f"Removed all channel configurations for guild {guild_id}")
     else:
         await interaction.response.send_message(
-            "No channel was configured for this server.", ephemeral=True
+            "No channels were configured for this server.", ephemeral=True
         )
 
 
@@ -890,3 +1148,4 @@ if __name__ == "__main__":
         print("Please follow the readme to setup the bot!")
     else:
         client.run(TOKEN)
+
