@@ -37,17 +37,20 @@ global_seen_pids = deque(maxlen=300)  # Track last 300 PIDs globally
 MAX_TRACKED_PIDS = 300
 DEBUG_NEW_ALERTS = False
 
+# What's Next message tracking
+whatsnext_messages = {}  # {(guild_id, channel_id): message_id}
+
 
 def load_config():
     """Load configuration from file"""
-    global guild_channels, posted_items, global_seen_pids
+    global guild_channels, posted_items, global_seen_pids, whatsnext_messages
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r") as f:
                 config = json.load(f)
                 # Load guild -> channel mapping
                 raw_config = config.get("guild_channels", {})
-                
+
                 # Handle both old format (guild_id: channel_id) and new format (guild_id: {"winter": id, "severe": id, "tornado": id})
                 guild_channels = {}
                 for k, v in raw_config.items():
@@ -55,21 +58,40 @@ def load_config():
                     if isinstance(v, dict):
                         # New format
                         guild_channels[guild_id] = v
-                        print(f"  Guild {guild_id} -> Winter: {v.get('winter')}, Severe: {v.get('severe')}, Tornado: {v.get('tornado')}")
+                        print(
+                            f"  Guild {guild_id} -> Winter: {v.get('winter')}, Severe: {v.get('severe')}, Tornado: {v.get('tornado')}"
+                        )
                     else:
                         # Old format - migrate to new format with backward compatibility
                         guild_channels[guild_id] = {
                             "winter": v,
-                            "severe": v, 
-                            "tornado": v
+                            "severe": v,
+                            "tornado": v,
                         }
-                        print(f"  Guild {guild_id} -> Migrated old config to all alert types: Channel {v}")
-                    
+                        print(
+                            f"  Guild {guild_id} -> Migrated old config to all alert types: Channel {v}"
+                        )
+
                     # Initialize posted_items set for each guild
                     if guild_id not in posted_items:
                         posted_items[guild_id] = set()
-                
-                print(f"Loaded {len(guild_channels)} guild configurations")
+
+                # Load what's next messages
+                whatsnext_raw = config.get("whatsnext_messages", {})
+                whatsnext_messages = {}
+                for key, message_id in whatsnext_raw.items():
+                    try:
+                        guild_id, channel_id = map(int, key.split("_"))
+                        whatsnext_messages[(guild_id, channel_id)] = message_id
+                        print(
+                            f"  Loaded what's next message for guild {guild_id}, channel {channel_id}"
+                        )
+                    except:
+                        print(f"  Failed to parse what's next message key: {key}")
+
+                print(
+                    f"Loaded {len(guild_channels)} guild configurations and {len(whatsnext_messages)} what's next messages"
+                )
         except Exception as e:
             print(f"Error loading config: {e}")
     else:
@@ -82,10 +104,17 @@ def load_config():
 def save_config():
     """Save configuration to file"""
     try:
-        config = {"guild_channels": {str(k): v for k, v in guild_channels.items()}}
+        config = {
+            "guild_channels": {str(k): v for k, v in guild_channels.items()},
+            "whatsnext_messages": {
+                f"{k[0]}_{k[1]}": v for k, v in whatsnext_messages.items()
+            },
+        }
         with open(CONFIG_FILE, "w") as f:
             json.dump(config, f, indent=2)
-        print(f"Saved configuration for {len(guild_channels)} guilds")
+        print(
+            f"Saved configuration for {len(guild_channels)} guilds and {len(whatsnext_messages)} what's next messages"
+        )
     except Exception as e:
         print(f"Error saving config: {e}")
 
@@ -151,7 +180,6 @@ def is_winter_alert(title):
     return (
         "winter storm warning" in title_lower
         or "winter storm watch" in title_lower
-        or "winter weather advisory" in title_lower
         or "blizzard warning" in title_lower
         or "blizzard watch" in title_lower
         or "ice storm warning" in title_lower
@@ -159,15 +187,8 @@ def is_winter_alert(title):
         or "heavy snow warning" in title_lower
         or "snow squall warning" in title_lower
         or "lake effect snow warning" in title_lower
-        or "lake effect snow advisory" in title_lower
         or "freezing rain advisory" in title_lower
-        or "wind chill advisory" in title_lower
         or "wind chill warning" in title_lower
-        or "winter" in title_lower
-        or "snow" in title_lower
-        or "ice" in title_lower
-        or "blizzard" in title_lower
-        or "freezing" in title_lower
     )
 
 
@@ -175,12 +196,9 @@ def is_severe_thunderstorm_alert(title):
     """Check if the alert is severe thunderstorm-related"""
     title_lower = title.lower()
     return (
-        "severe thunderstorm warning" in title_lower
+        "Severe Thunderstorm Warning" in title_lower
         or "severe thunderstorm watch" in title_lower
         or "severe thunderstorm" in title_lower
-        or "severe weather statement" in title_lower
-        or "severe weather" in title_lower
-        or "svr" in title_lower
         or "thunderstorm warning" in title_lower
         or "thunderstorm watch" in title_lower
     )
@@ -193,14 +211,16 @@ def is_tornado_alert(title):
         "tornado warning" in title_lower
         or "tornado watch" in title_lower
         or "tornado emergency" in title_lower
-        or "tornado" in title_lower
-        or "tor" in title_lower
     )
 
 
 def is_severe_weather_warning(title):
     """Check if the alert matches any of our tracked alert types (kept for compatibility)"""
-    return is_winter_alert(title) or is_severe_thunderstorm_alert(title) or is_tornado_alert(title)
+    return (
+        is_winter_alert(title)
+        or is_severe_thunderstorm_alert(title)
+        or is_tornado_alert(title)
+    )
 
 
 @tasks.loop(minutes=CHECK_INTERVAL)
@@ -251,7 +271,9 @@ async def check_rss_feed():
                 continue
 
             # This is a new alert, process it
-            print(f"NEW ALERT DETECTED: PID={pid}, Title={title[:50]}..., Types={alert_types}")
+            print(
+                f"NEW ALERT DETECTED: PID={pid}, Title={title[:50]}..., Types={alert_types}"
+            )
 
             # Add to global tracking immediately to prevent race conditions
             global_seen_pids.append(pid)
@@ -293,13 +315,17 @@ async def check_rss_feed():
                         new_alerts_count += 1
 
                         if DEBUG_NEW_ALERTS:
-                            print(f"Posted {alert_type} alert to guild {guild_id}: {title[:50]}...")
+                            print(
+                                f"Posted {alert_type} alert to guild {guild_id}: {title[:50]}..."
+                            )
 
                         # Avoid rate limiting between channels
                         await asyncio.sleep(0.5)
                         break  # Only post once per guild even if it matches multiple alert types
                     except Exception as e:
-                        print(f"Error posting {alert_type} alert to guild {guild_id}: {e}")
+                        print(
+                            f"Error posting {alert_type} alert to guild {guild_id}: {e}"
+                        )
 
         # Memory management after processing
         for guild_id in guild_channels.keys():
@@ -356,6 +382,60 @@ def mark_existing_alerts_as_posted():
 
 
 @tasks.loop(minutes=1)
+async def update_whatsnext_messages():
+    """Update all what's next messages with fresh schedule data"""
+    if not whatsnext_messages:
+        return
+
+    # Create list of messages to remove if they fail
+    messages_to_remove = []
+
+    for (guild_id, channel_id), message_id in list(whatsnext_messages.items()):
+        try:
+            channel = client.get_channel(channel_id)
+            if not channel:
+                messages_to_remove.append((guild_id, channel_id))
+                continue
+
+            # Try to fetch the message
+            try:
+                message = await channel.fetch_message(message_id)
+            except discord.NotFound:
+                messages_to_remove.append((guild_id, channel_id))
+                continue
+            except discord.Forbidden:
+                messages_to_remove.append((guild_id, channel_id))
+                continue
+
+            # Update the message with new embed
+            new_embed = create_whatsnext_embed()
+            await message.edit(embed=new_embed)
+
+        except Exception as e:
+            print(
+                f"Error updating what's next message for guild {guild_id}, channel {channel_id}: {e}"
+            )
+            messages_to_remove.append((guild_id, channel_id))
+
+    # Remove failed messages from tracking
+    for key in messages_to_remove:
+        if key in whatsnext_messages:
+            del whatsnext_messages[key]
+            print(
+                f"Removed what's next message for guild {key[0]}, channel {key[1]} (not found or inaccessible)"
+            )
+
+    # Save config if we removed any messages
+    if messages_to_remove:
+        save_config()
+
+
+@update_whatsnext_messages.before_loop
+async def before_update_whatsnext():
+    await client.wait_until_ready()
+
+
+@tasks.loop(minutes=1)
 async def update_utc_status():
     now_utc = datetime.now(timezone.utc).strftime("%H:%M UTC")
     activity = discord.Activity(
@@ -386,18 +466,32 @@ async def on_ready() -> None:
 
     check_rss_feed.start()
     update_utc_status.start()
+    update_whatsnext_messages.start()
 
 
 @client.event
 async def on_guild_remove(guild):
     """Clean up when bot is removed from a guild"""
-    global guild_channels
+    global guild_channels, whatsnext_messages
     if guild.id in guild_channels:
         del guild_channels[guild.id]
         if guild.id in posted_items:
             del posted_items[guild.id]
+
+        # Remove any what's next messages for this guild
+        messages_to_remove = [
+            (g_id, c_id)
+            for (g_id, c_id) in whatsnext_messages.keys()
+            if g_id == guild.id
+        ]
+        for key in messages_to_remove:
+            if key in whatsnext_messages:
+                del whatsnext_messages[key]
+
         save_config()
-        print(f"Removed configuration for guild {guild.id} ({guild.name})")
+        print(
+            f"Removed configuration for guild {guild.id} ({guild.name}) including {len(messages_to_remove)} what's next messages"
+        )
 
 
 model_dict = {
@@ -440,23 +534,33 @@ async def help_slash(interaction: discord.Interaction):
         description="List of available slash commands:",
         color=discord.Color.blurple(),
     )
-    
+
     # Group commands by category
     categories = {
         "Alert Channel Configuration": [
-            "setchannel", "setwinterchannel", "setseverechannel", 
-            "settornadocommand", "currentalertchannels", "currentchannel", "removechannel"
+            "setchannel",
+            "setwinterchannel",
+            "setseverechannel",
+            "settornadocommand",
+            "currentalertchannels",
+            "currentchannel",
+            "removechannel",
         ],
         "Weather Information": [
-            "getoffice", "getutc", "getoutlook", "fetch"
+            "getoffice",
+            "getutc",
+            "getoutlook",
+            "fetch",
+            "whatsnext",
         ],
-        "Utility": [
-            "help"
-        ]
+        "Utility": ["help"],
     }
-    
-    all_commands = {cmd.name: cmd.description or "No description." for cmd in client.tree.get_commands()}
-    
+
+    all_commands = {
+        cmd.name: cmd.description or "No description."
+        for cmd in client.tree.get_commands()
+    }
+
     for category, command_names in categories.items():
         embed.add_field(
             name=f"📋 {category}",
@@ -465,10 +569,12 @@ async def help_slash(interaction: discord.Interaction):
                 for name in command_names
                 if name in all_commands
             ),
-            inline=False
+            inline=False,
         )
-    
-    embed.set_footer(text="Use /help to see this message again. All channel configuration commands require administrator permissions.")
+
+    embed.set_footer(
+        text="Use /help to see this message again. All channel configuration and /whatsnext commands require administrator permissions."
+    )
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
@@ -497,7 +603,8 @@ async def on_app_command_error(interaction: discord.Interaction, error):
 
 # Commands
 @client.tree.command(
-    name="setchannel", description="Set the channel for weather alerts (for all alert types)"
+    name="setchannel",
+    description="Set the channel for weather alerts (for all alert types)",
 )
 @app_commands.describe(channel="The channel to send alerts to")
 @app_commands.default_permissions(administrator=True)
@@ -505,16 +612,16 @@ async def set_channel(interaction: discord.Interaction, channel: discord.TextCha
     global guild_channels
 
     guild_id = interaction.guild_id
-    
+
     # Initialize guild config if not exists
     if guild_id not in guild_channels:
         guild_channels[guild_id] = {}
-    
+
     # Set all alert types to this channel
     guild_channels[guild_id] = {
         "winter": channel.id,
         "severe": channel.id,
-        "tornado": channel.id
+        "tornado": channel.id,
     }
 
     # Initialize posted_items for this guild if needed
@@ -537,15 +644,17 @@ async def set_channel(interaction: discord.Interaction, channel: discord.TextCha
 )
 @app_commands.describe(channel="The channel to send winter alerts to")
 @app_commands.default_permissions(administrator=True)
-async def set_winter_channel(interaction: discord.Interaction, channel: discord.TextChannel):
+async def set_winter_channel(
+    interaction: discord.Interaction, channel: discord.TextChannel
+):
     global guild_channels
 
     guild_id = interaction.guild_id
-    
+
     # Initialize guild config if not exists
     if guild_id not in guild_channels:
         guild_channels[guild_id] = {}
-    
+
     guild_channels[guild_id]["winter"] = channel.id
 
     # Initialize posted_items for this guild if needed
@@ -564,19 +673,22 @@ async def set_winter_channel(interaction: discord.Interaction, channel: discord.
 
 
 @client.tree.command(
-    name="setseverechannel", description="Set the channel for severe thunderstorm alerts"
+    name="setseverechannel",
+    description="Set the channel for severe thunderstorm alerts",
 )
 @app_commands.describe(channel="The channel to send severe thunderstorm alerts to")
 @app_commands.default_permissions(administrator=True)
-async def set_severe_channel(interaction: discord.Interaction, channel: discord.TextChannel):
+async def set_severe_channel(
+    interaction: discord.Interaction, channel: discord.TextChannel
+):
     global guild_channels
 
     guild_id = interaction.guild_id
-    
+
     # Initialize guild config if not exists
     if guild_id not in guild_channels:
         guild_channels[guild_id] = {}
-    
+
     guild_channels[guild_id]["severe"] = channel.id
 
     # Initialize posted_items for this guild if needed
@@ -599,15 +711,17 @@ async def set_severe_channel(interaction: discord.Interaction, channel: discord.
 )
 @app_commands.describe(channel="The channel to send tornado alerts to")
 @app_commands.default_permissions(administrator=True)
-async def set_tornado_channel(interaction: discord.Interaction, channel: discord.TextChannel):
+async def set_tornado_channel(
+    interaction: discord.Interaction, channel: discord.TextChannel
+):
     global guild_channels
 
     guild_id = interaction.guild_id
-    
+
     # Initialize guild config if not exists
     if guild_id not in guild_channels:
         guild_channels[guild_id] = {}
-    
+
     guild_channels[guild_id]["tornado"] = channel.id
 
     # Initialize posted_items for this guild if needed
@@ -626,7 +740,8 @@ async def set_tornado_channel(interaction: discord.Interaction, channel: discord
 
 
 @client.tree.command(
-    name="currentalertchannels", description="Show the current alert channels for all types"
+    name="currentalertchannels",
+    description="Show the current alert channels for all types",
 )
 @app_commands.default_permissions(administrator=True)
 async def current_alert_channels(interaction: discord.Interaction):
@@ -638,29 +753,29 @@ async def current_alert_channels(interaction: discord.Interaction):
             ephemeral=True,
         )
         return
-    
+
     channels_config = guild_channels[guild_id]
     embed = discord.Embed(
         title="Current Alert Channels",
         description="Configuration for weather alert channels in this server:",
-        color=discord.Color.blue()
+        color=discord.Color.blue(),
     )
-    
+
     for alert_type, channel_id in channels_config.items():
         channel = client.get_channel(channel_id)
         if channel:
             embed.add_field(
                 name=f"{alert_type.capitalize()} Alerts",
                 value=f"{channel.mention} (ID: {channel_id})",
-                inline=False
+                inline=False,
             )
         else:
             embed.add_field(
                 name=f"{alert_type.capitalize()} Alerts",
                 value=f"Channel ID {channel_id} not found (may have been deleted)",
-                inline=False
+                inline=False,
             )
-    
+
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
@@ -679,14 +794,16 @@ async def current_channel(interaction: discord.Interaction):
     else:
         # For legacy compatibility, show the first configured channel
         channels_config = guild_channels[guild_id]
-        first_channel_id = next(iter(channels_config.values())) if channels_config else None
-        
+        first_channel_id = (
+            next(iter(channels_config.values())) if channels_config else None
+        )
+
         if first_channel_id:
             channel = client.get_channel(first_channel_id)
             if channel:
                 await interaction.response.send_message(
                     f"Current alert channel: {channel.mention} (Note: Use `/currentalertchannels` to see all configured channels)",
-                    ephemeral=True
+                    ephemeral=True,
                 )
             else:
                 await interaction.response.send_message(
@@ -701,7 +818,8 @@ async def current_channel(interaction: discord.Interaction):
 
 
 @client.tree.command(
-    name="removechannel", description="Remove all weather alert channels from this server"
+    name="removechannel",
+    description="Remove all weather alert channels from this server",
 )
 @app_commands.default_permissions(administrator=True)
 async def remove_channel(interaction: discord.Interaction):
@@ -714,7 +832,8 @@ async def remove_channel(interaction: discord.Interaction):
             del posted_items[guild_id]
         save_config()
         await interaction.response.send_message(
-            "All weather alert channels have been disabled for this server.", ephemeral=True
+            "All weather alert channels have been disabled for this server.",
+            ephemeral=True,
         )
         print(f"Removed all channel configurations for guild {guild_id}")
     else:
@@ -730,6 +849,105 @@ async def remove_channel(interaction: discord.Interaction):
 async def getUTC(interaction: discord.Interaction) -> None:
     utc_time = await getUTCTime()
     await interaction.response.send_message(utc_time.strftime("%H:%M %m-%d-%y"))
+
+
+@client.tree.command(
+    name="whatsnext",
+    description="Create/update live schedule message for model runs and SPC outlooks",
+)
+@app_commands.describe(action="Action to perform (start/stop/status)")
+@app_commands.choices(
+    action=[
+        app_commands.Choice(name="Start Live Schedule", value="start"),
+        app_commands.Choice(name="Stop Live Schedule", value="stop"),
+        app_commands.Choice(name="Show Status", value="status"),
+    ]
+)
+@app_commands.default_permissions(administrator=True)
+async def whatsnext(interaction: discord.Interaction, action: str = "start"):
+    global whatsnext_messages
+
+    guild_id = interaction.guild_id
+    channel_id = interaction.channel.id
+
+    if action == "start":
+        # Check if there's already a message in this channel
+        if (guild_id, channel_id) in whatsnext_messages:
+            await interaction.response.send_message(
+                "There's already a live schedule message in this channel. Use `/whatsnext stop` to remove it first.",
+                ephemeral=True,
+            )
+            return
+
+        # Create the initial embed
+        initial_embed = create_whatsnext_embed()
+
+        # Send the message
+        await interaction.response.send_message(embed=initial_embed)
+        message = await interaction.original_response()
+
+        # Store the message reference
+        whatsnext_messages[(guild_id, channel_id)] = message.id
+        save_config()
+
+        await interaction.followup.send(
+            "✅ Live schedule message created! It will update every minute with fresh countdowns.",
+            ephemeral=True,
+        )
+        print(
+            f"Created what's next message for guild {guild_id}, channel {channel_id}, message {message.id}"
+        )
+
+    elif action == "stop":
+        if (guild_id, channel_id) not in whatsnext_messages:
+            await interaction.response.send_message(
+                "No live schedule message found in this channel.", ephemeral=True
+            )
+            return
+
+        # Remove from tracking
+        message_id = whatsnext_messages[(guild_id, channel_id)]
+        del whatsnext_messages[(guild_id, channel_id)]
+        save_config()
+
+        await interaction.response.send_message(
+            "✅ Live schedule updates stopped. The message will no longer be updated.",
+            ephemeral=True,
+        )
+        print(
+            f"Stopped what's next message for guild {guild_id}, channel {channel_id}, message {message_id}"
+        )
+
+    elif action == "status":
+        active_in_guild = [
+            (g_id, c_id, msg_id)
+            for (g_id, c_id), msg_id in whatsnext_messages.items()
+            if g_id == guild_id
+        ]
+
+        if not active_in_guild:
+            await interaction.response.send_message(
+                "No active live schedule messages in this server.", ephemeral=True
+            )
+            return
+
+        embed = discord.Embed(
+            title="📊 Live Schedule Status",
+            description=f"Found {len(active_in_guild)} active message(s) in this server:",
+            color=discord.Color.green(),
+        )
+
+        for g_id, c_id, msg_id in active_in_guild:
+            channel = client.get_channel(c_id)
+            if channel:
+                embed.add_field(
+                    name=f"Channel: {channel.name}",
+                    value=f"Message ID: {msg_id}\nStatus: ✅ Active",
+                    inline=False,
+                )
+
+        embed.set_footer(text="Use /whatsnext stop to halt updates in any channel")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 @client.tree.command(
@@ -1148,4 +1366,3 @@ if __name__ == "__main__":
         print("Please follow the readme to setup the bot!")
     else:
         client.run(TOKEN)
-
