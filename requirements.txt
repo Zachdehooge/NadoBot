@@ -4,4 +4,4 @@ beautifulsoup4==4.14.2
 requests==2.32.5
 pytz~=2025.2
 python-dateutil~=2.9.0.post0
-feedparser
+aiohttp~=3.11.11
