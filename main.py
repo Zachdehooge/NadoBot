@@ -210,13 +210,10 @@ async def fetch_nws_alerts(session: aiohttp.ClientSession) -> list:
         "winter": "https://api.weather.gov/alerts/active?status=actual&message_type=alert,update&event=winter%20storm%20warning,winter%20storm%20watch,blizzard%20warning,blizzard%20watch,ice%20storm%20warning,ice%20storm%20watch,heavy%20snow%20warning,snow%20squall%20warning,lake%20effect%20snow%20warning,freezing%20rain%20advisory,wind%20chill%20warning",
         "sws": "https://api.weather.gov/alerts/active?event=special%20weather%20statement",
     }
-    
+
     all_alerts = []
-    headers = {
-        "User-Agent": USER_AGENT,
-        "accept": "application/geo+json"
-    }
-    
+    headers = {"User-Agent": USER_AGENT, "accept": "application/geo+json"}
+
     for alert_type, url in alert_type_urls.items():
         try:
             async with session.get(url, headers=headers) as response:
@@ -233,7 +230,7 @@ async def fetch_nws_alerts(session: aiohttp.ClientSession) -> list:
                     print(f"NWS API error for {alert_type}: {response.status}")
         except Exception as e:
             print(f"Error fetching NWS alerts for {alert_type}: {e}")
-    
+
     return all_alerts
 
 
@@ -253,11 +250,13 @@ def is_winter_alert(event_name: str) -> bool:
     ]
     return event_name.lower() in [e.lower() for e in winter_events]
 
+
 def is_sws_alert(event_name: str) -> bool:
     sws_events = [
         "Special Weather Statement",
     ]
     return event_name.lower() in [e.lower() for e in sws_events]
+
 
 def is_severe_thunderstorm_alert(event_name: str) -> bool:
     severe_events = [
@@ -306,7 +305,7 @@ async def check_rss_feed():
             old_count = len(global_seen_pids)
             global_seen_pids = deque(
                 [pid for pid in global_seen_pids if pid in active_alert_ids],
-                maxlen=MAX_TRACKED_PIDS
+                maxlen=MAX_TRACKED_PIDS,
             )
             removed = old_count - len(global_seen_pids)
             if removed > 0:
@@ -343,7 +342,7 @@ async def check_rss_feed():
                 continue
 
             alert_type = alert.get("_nws_alert_type", "")
-            
+
             if not alert_type:
                 if is_winter_alert(event):
                     alert_type = "winter"
@@ -391,27 +390,35 @@ async def check_rss_feed():
                     embed = discord.Embed(
                         title=f"⚠️ {event}",
                         description=f"**Area:** {area_desc}\n**Severity:** {severity}\n**Urgency:** {urgency}\n**Certainty:** {certainty}\n\n{description}...",
-                        color=discord.Color.red() if "warning" in event.lower() else discord.Color.orange(),
+                        color=(
+                            discord.Color.red()
+                            if "warning" in event.lower()
+                            else discord.Color.orange()
+                        ),
                         url=link,
-                        timestamp=parser.parse(expires) if expires else None
+                        timestamp=parser.parse(expires) if expires else None,
                     )
-                    embed.add_field(name="Expires:", value="<t:{}:R>".format(int(parser.parse(expires).timestamp())) if expires else "Unknown", inline=False)
-                    
+                    embed.add_field(
+                        name="Expires:",
+                        value=(
+                            "<t:{}:R>".format(int(parser.parse(expires).timestamp()))
+                            if expires
+                            else "Unknown"
+                        ),
+                        inline=False,
+                    )
+
                     await channel.send(embed=embed)
 
                     posted_items[guild_id].add(alert_id)
                     new_alerts_count += 1
 
                     if DEBUG_NEW_ALERTS:
-                        print(
-                            f"Posted {alert_type} alert to guild {guild_id}: {event}"
-                        )
+                        print(f"Posted {alert_type} alert to guild {guild_id}: {event}")
 
                     await asyncio.sleep(0.5)
                 except Exception as e:
-                    print(
-                        f"Error posting {alert_type} alert to guild {guild_id}: {e}"
-                    )
+                    print(f"Error posting {alert_type} alert to guild {guild_id}: {e}")
 
             global_seen_pids.append(alert_id)
 
@@ -426,12 +433,15 @@ async def check_rss_feed():
             print(f"Global PIDs tracked: {len(global_seen_pids)}/{MAX_TRACKED_PIDS}")
 
         if new_alerts_count > 0:
-            print(f"NWS Alert Check: Posted {new_alerts_count} new alerts across all guilds")
+            print(
+                f"NWS Alert Check: Posted {new_alerts_count} new alerts across all guilds"
+            )
             save_config()
 
     except Exception as e:
         print(f"Error checking NWS API: {e}")
         import traceback
+
         traceback.print_exc()
 
 
@@ -456,7 +466,9 @@ async def mark_existing_alerts_as_posted():
                 global_seen_pids.append(alert_id)
                 added_count += 1
 
-        print(f"Marked {len(alerts)} existing alerts as already seen ({added_count} new)")
+        print(
+            f"Marked {len(alerts)} existing alerts as already seen ({added_count} new)"
+        )
         print(f"Global PIDs initialized: {len(global_seen_pids)}")
         if added_count > 0:
             save_config()
@@ -755,9 +767,8 @@ async def set_winter_channel(
         f"Winter channel set for guild {guild_id} ({interaction.guild.name}): {channel.name} (ID: {channel.id})"
     )
 
-@client.tree.command(
-    name="setswschannel", description="Set the channel for sws alerts"
-)
+
+@client.tree.command(name="setswschannel", description="Set the channel for sws alerts")
 @app_commands.describe(channel="The channel to send sws alerts too")
 @app_commands.default_permissions(administrator=True)
 async def set_sws_channel(
