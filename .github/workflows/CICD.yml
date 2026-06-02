@@ -86,4 +86,4 @@ jobs:
         run: |
           curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin v0.58.2
           docker pull zachdehooge/nadobot
-          trivy image zachdehooge/nadobot:latest
+          trivy image --severity HIGH,CRITICAL zachdehooge/nadobot:latest
