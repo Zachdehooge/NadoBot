@@ -1,15 +1,18 @@
+import asyncio
 import io
+import json
+from collections import deque
 from datetime import date
-
+import aiohttp
 import discord
 from dateutil import parser
 from discord import app_commands
 from discord.app_commands import checks, CommandOnCooldown
-from discord.ext import commands
+from discord.ext import commands, tasks
+from urllib.parse import urlparse, parse_qs
 
 from features.functions import *
 
-# Retrieve token from .env
 load_dotenv()
 TOKEN: str = os.getenv("TOKEN")
 
@@ -20,14 +23,570 @@ intents.message_content = True
 # Create bot client
 client = commands.Bot(command_prefix=None, intents=intents)
 
+USER_AGENT = "NadoBot (Discord Weather Bot)"
+CHANNEL_ID = None
+CHECK_INTERVAL = 1
+CONFIG_FILE = "bot_config.json"
+
+guild_channels = {}
+
+posted_items = {}
+
+global_seen_pids = deque(maxlen=300)
+MAX_TRACKED_PIDS = 300
+DEBUG_NEW_ALERTS = False
+
+whatsnext_messages = {}  # {(guild_id, channel_id): message_id}
+
+
+def load_config():
+    """Load configuration from file"""
+    global guild_channels, posted_items, global_seen_pids, whatsnext_messages
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r") as f:
+                config = json.load(f)
+                # Load guild -> channel mapping
+                raw_config = config.get("guild_channels", {})
+
+                # Handle both old format (guild_id: channel_id) and new format (guild_id: {"winter": id, "severe": id, "tornado": id})
+                guild_channels = {}
+                for k, v in raw_config.items():
+                    guild_id = int(k)
+                    if isinstance(v, dict):
+                        # New format
+                        guild_channels[guild_id] = v
+                        print(
+                            f"  Guild {guild_id} -> Winter: {v.get('winter')}, Severe: {v.get('severe')}, Tornado: {v.get('tornado')}, SWS: {v.get('sws')}"
+                        )
+                    else:
+                        # Old format - migrate to new format with backward compatibility
+                        guild_channels[guild_id] = {
+                            "winter": v,
+                            "severe": v,
+                            "tornado": v,
+                        }
+                        print(
+                            f"  Guild {guild_id} -> Migrated old config to all alert types: Channel {v}"
+                        )
+
+                    if guild_id not in posted_items:
+                        posted_items[guild_id] = set()
+
+                # Load what's next messages
+                whatsnext_raw = config.get("whatsnext_messages", {})
+                whatsnext_messages = {}
+                for key, message_id in whatsnext_raw.items():
+                    try:
+                        guild_id, channel_id = map(int, key.split("_"))
+                        whatsnext_messages[(guild_id, channel_id)] = message_id
+                        print(
+                            f"  Loaded what's next message for guild {guild_id}, channel {channel_id}"
+                        )
+                    except:
+                        print(f"  Failed to parse what's next message key: {key}")
+
+                print(
+                    f"Loaded {len(guild_channels)} guild configurations and {len(whatsnext_messages)} what's next messages"
+                )
+
+                # Load global seen PIDs
+                saved_pids = config.get("global_seen_pids", [])
+                global_seen_pids = deque(saved_pids, maxlen=MAX_TRACKED_PIDS)
+                print(f"Loaded {len(global_seen_pids)} previously seen alert IDs")
+        except Exception as e:
+            print(f"Error loading config: {e}")
+    else:
+        print("No config file found, starting fresh")
+        # Initialize global PIDs tracking only if no config file
+        global_seen_pids = deque(maxlen=MAX_TRACKED_PIDS)
+
+
+def save_config():
+    """Save configuration to file"""
+    try:
+        config = {
+            "guild_channels": {str(k): v for k, v in guild_channels.items()},
+            "whatsnext_messages": {
+                f"{k[0]}_{k[1]}": v for k, v in whatsnext_messages.items()
+            },
+            "global_seen_pids": list(global_seen_pids),
+        }
+        with open(CONFIG_FILE, "w") as f:
+            json.dump(config, f, indent=2)
+        print(
+            f"Saved configuration for {len(guild_channels)} guilds and {len(whatsnext_messages)} what's next messages"
+        )
+    except Exception as e:
+        print(f"Error saving config: {e}")
+
+
+def parse_weather_alert(entry):
+    """Parse RSS entry and create Discord embed"""
+    title = entry.get("title", "Weather Alert")
+    link = entry.get("link", "")
+    description = entry.get("description", "")
+    pub_date = entry.get("published", "")
+
+    if len(title) > 256:
+        title = title[:253] + "..."
+
+    # Create embed
+    try:
+        timestamp = (
+            datetime.strptime(pub_date, "%a, %d %b %Y %H:%M:%S %z")
+            if pub_date
+            else datetime.now()
+        )
+    except:
+        timestamp = datetime.now()
+
+    embed = discord.Embed(
+        title=title, url=link, color=discord.Color.red(), timestamp=timestamp
+    )
+
+    # Extract clean description (remove CDATA and pre tags)
+    clean_desc = description.replace("<![CDATA[", "").replace("]]>", "")
+    clean_desc = clean_desc.replace("<pre>", "").replace("</pre>", "").strip()
+
+    # Truncate if too long (Discord limit is 4096 chars)
+    if len(clean_desc) > 4000:
+        clean_desc = clean_desc[:4000] + "..."
+
+    embed.description = f"```\n{clean_desc}\n```"
+    embed.set_footer(text="Weather Alert System")
+
+    return embed
+
+
+def extract_pid_from_link(link):
+    """Extract unique PID from RSS link URL"""
+    try:
+        if not link:
+            return None
+
+        # Parse URL and extract 'pid' parameter
+        parsed = urlparse(link)
+        params = parse_qs(parsed.query)
+        pid = params.get("pid", [None])[0]
+
+        return pid if pid else None
+    except Exception as e:
+        print(f"Error extracting PID from link {link}: {e}")
+        return None
+
+
+def get_nws_alert_events():
+    return [
+        # Winter alerts
+        "Winter Storm Warning",
+        "Winter Storm Watch",
+        "Blizzard Warning",
+        "Blizzard Watch",
+        "Ice Storm Warning",
+        "Ice Storm Watch",
+        "Heavy Snow Warning",
+        "Snow Squall Warning",
+        "Lake Effect Snow Warning",
+        "Freezing Rain Advisory",
+        "Wind Chill Warning",
+        # Severe thunderstorm alerts
+        "Severe Thunderstorm Warning",
+        "Severe Thunderstorm Watch",
+        "Thunderstorm Warning",
+        "Thunderstorm Watch",
+        # Tornado alerts
+        "Tornado Warning",
+        "Tornado Watch",
+        "Tornado Emergency",
+    ]
+
+
+async def fetch_nws_alerts(session: aiohttp.ClientSession) -> list:
+    """Fetch active alerts from NWS API using specific endpoints for each alert type"""
+    alert_type_urls = {
+        "tornado": "https://api.weather.gov/alerts/active?status=actual&message_type=alert,update&event=tornado%20watch,tornado%20warning,tornado%20emergency",
+        "severe": "https://api.weather.gov/alerts/active?status=actual&message_type=alert,update&event=severe%20thunderstorm%20warning,severe%20thunderstorm%20watch,thunderstorm%20warning,thunderstorm%20watch",
+        "winter": "https://api.weather.gov/alerts/active?status=actual&message_type=alert,update&event=winter%20storm%20warning,winter%20storm%20watch,blizzard%20warning,blizzard%20watch,ice%20storm%20warning,ice%20storm%20watch,heavy%20snow%20warning,snow%20squall%20warning,lake%20effect%20snow%20warning,freezing%20rain%20advisory,wind%20chill%20warning",
+        "sws": "https://api.weather.gov/alerts/active?event=special%20weather%20statement",
+    }
+
+    all_alerts = []
+    headers = {"User-Agent": USER_AGENT, "accept": "application/geo+json"}
+
+    for alert_type, url in alert_type_urls.items():
+        try:
+            async with session.get(url, headers=headers) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    features = data.get("features", [])
+                    for feature in features:
+                        props = feature.get("properties", {})
+                        props["_nws_alert_type"] = alert_type
+                        all_alerts.append(props)
+                elif response.status == 204:
+                    pass
+                else:
+                    print(f"NWS API error for {alert_type}: {response.status}")
+        except Exception as e:
+            print(f"Error fetching NWS alerts for {alert_type}: {e}")
+
+    return all_alerts
+
+
+def is_winter_alert(event_name: str) -> bool:
+    winter_events = [
+        "Winter Storm Warning",
+        "Winter Storm Watch",
+        "Blizzard Warning",
+        "Blizzard Watch",
+        "Ice Storm Warning",
+        "Ice Storm Watch",
+        "Heavy Snow Warning",
+        "Snow Squall Warning",
+        "Lake Effect Snow Warning",
+        "Freezing Rain Advisory",
+        "Wind Chill Warning",
+    ]
+    return event_name.lower() in [e.lower() for e in winter_events]
+
+
+def is_sws_alert(event_name: str) -> bool:
+    sws_events = [
+        "Special Weather Statement",
+    ]
+    return event_name.lower() in [e.lower() for e in sws_events]
+
+
+def is_severe_thunderstorm_alert(event_name: str) -> bool:
+    severe_events = [
+        "Severe Thunderstorm Warning",
+        "Severe Thunderstorm Watch",
+        "Thunderstorm Warning",
+        "Thunderstorm Watch",
+    ]
+    return event_name.lower() in [e.lower() for e in severe_events]
+
+
+def is_tornado_alert(event_name: str) -> bool:
+    tornado_events = [
+        "Tornado Warning",
+        "Tornado Watch",
+        "Tornado Emergency",
+    ]
+    return event_name.lower() in [e.lower() for e in tornado_events]
+
+
+def is_severe_weather_warning(title):
+    """Check if the alert matches any of our tracked alert types (kept for compatibility)"""
+    return (
+        is_winter_alert(title)
+        or is_severe_thunderstorm_alert(title)
+        or is_tornado_alert(title)
+        or is_sws_alert(title)
+    )
+
+
+@tasks.loop(minutes=CHECK_INTERVAL)
+async def check_rss_feed():
+    """Check NWS API for active alerts across all configured guilds"""
+    global global_seen_pids
+    if not guild_channels:
+        print("NWS Alert Check: No guilds configured, skipping...")
+        return
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            alerts = await fetch_nws_alerts(session)
+
+        # Clean up global_seen_pids - remove alerts that are no longer active
+        active_alert_ids = {alert.get("id", "") for alert in alerts if alert.get("id")}
+        if active_alert_ids and len(global_seen_pids) > 0:
+            old_count = len(global_seen_pids)
+            global_seen_pids = deque(
+                [pid for pid in global_seen_pids if pid in active_alert_ids],
+                maxlen=MAX_TRACKED_PIDS,
+            )
+            removed = old_count - len(global_seen_pids)
+            if removed > 0:
+                print(f"Cleaned up {removed} expired alerts from global_seen_pids")
+                save_config()
+
+        if not alerts:
+            print("NWS Alert Check: No active alerts found")
+            return
+
+        print(f"NWS Alert Check: Found {len(alerts)} total alerts")
+
+        new_alerts_count = 0
+
+        for alert in alerts:
+            event = alert.get("event", "")
+            alert_id = alert.get("id", "")
+            title = alert.get("headline", "") or alert.get("event", "")
+            description = alert.get("description", "")[:500]
+            area_desc = alert.get("areaDesc", "Unknown")
+            severity = alert.get("severity", "Unknown")
+            urgency = alert.get("urgency", "Unknown")
+            certainty = alert.get("certainty", "Unknown")
+            sent = alert.get("sent", "")
+            expires = alert.get("expires", "")
+            expires_timestamp = int(parser.parse(expires).timestamp()) if expires else 0
+            link = ""
+
+            if not alert_id:
+                continue
+
+            # Skip if already in global_seen_pids (from previous session or already posted)
+            if alert_id in global_seen_pids:
+                continue
+
+            alert_type = alert.get("_nws_alert_type", "")
+
+            if not alert_type:
+                if is_winter_alert(event):
+                    alert_type = "winter"
+                elif is_severe_thunderstorm_alert(event):
+                    alert_type = "severe"
+                elif is_tornado_alert(event):
+                    alert_type = "tornado"
+                elif is_sws_alert(event):
+                    alert_type = "sws"
+                else:
+                    continue
+
+            alert_type_urls = {
+                "tornado": "https://api.weather.gov/alerts/active?status=actual&message_type=alert,update&event=tornado%20watch,tornado%20warning,tornado%20emergency",
+                "severe": "https://api.weather.gov/alerts/active?status=actual&message_type=alert,update&event=severe%20thunderstorm%20warning,severe%20thunderstorm%20watch,thunderstorm%20warning,thunderstorm%20watch",
+                "winter": "https://api.weather.gov/alerts/active?status=actual&message_type=alert,update&event=winter%20storm%20warning,winter%20storm%20watch,blizzard%20warning,blizzard%20watch,ice%20storm%20warning,ice%20storm%20watch,heavy%20snow%20warning,snow%20squall%20warning,lake%20effect%20snow%20warning,freezing%20rain%20advisory,wind%20chill%20warning",
+                "sws": "https://api.weather.gov/alerts/active?event=special%20weather%20statement",
+            }
+            link = alert_type_urls.get(alert_type, "https://www.weather.gov/")
+
+            print(
+                f"NEW ALERT DETECTED: ID={alert_id}, Event={event}, Type={alert_type}"
+            )
+
+            for guild_id, channels_config in guild_channels.items():
+                if guild_id not in posted_items:
+                    posted_items[guild_id] = set()
+
+                # Skip if already posted to this guild
+                if alert_id in posted_items[guild_id]:
+                    continue
+
+                channel_id = channels_config.get(alert_type)
+                if not channel_id:
+                    continue
+
+                channel = client.get_channel(channel_id)
+                if not channel:
+                    print(
+                        f"NWS Alert Check: Channel {channel_id} not found for guild {guild_id} ({alert_type})"
+                    )
+                    continue
+
+                try:
+                    embed = discord.Embed(
+                        title=f"⚠️ {event}",
+                        description=f"**Area:** {area_desc}\n**Severity:** {severity}\n**Urgency:** {urgency}\n**Certainty:** {certainty}\n\n{description}...",
+                        color=(
+                            discord.Color.red()
+                            if "warning" in event.lower()
+                            else discord.Color.orange()
+                        ),
+                        url=link,
+                        timestamp=parser.parse(expires) if expires else None,
+                    )
+                    embed.add_field(
+                        name="Expires:",
+                        value=(
+                            "<t:{}:R>".format(int(parser.parse(expires).timestamp()))
+                            if expires
+                            else "Unknown"
+                        ),
+                        inline=False,
+                    )
+
+                    await channel.send(embed=embed)
+
+                    posted_items[guild_id].add(alert_id)
+                    new_alerts_count += 1
+
+                    if DEBUG_NEW_ALERTS:
+                        print(f"Posted {alert_type} alert to guild {guild_id}: {event}")
+
+                    await asyncio.sleep(0.5)
+                except Exception as e:
+                    print(f"Error posting {alert_type} alert to guild {guild_id}: {e}")
+
+            global_seen_pids.append(alert_id)
+
+        for guild_id in guild_channels.keys():
+            if guild_id in posted_items:
+                if len(posted_items[guild_id]) > 100:
+                    posted_items_list = list(posted_items[guild_id])
+                    posted_items[guild_id].clear()
+                    posted_items[guild_id].update(posted_items_list[-100:])
+
+        if DEBUG_NEW_ALERTS:
+            print(f"Global PIDs tracked: {len(global_seen_pids)}/{MAX_TRACKED_PIDS}")
+
+        if new_alerts_count > 0:
+            print(
+                f"NWS Alert Check: Posted {new_alerts_count} new alerts across all guilds"
+            )
+            save_config()
+
+    except Exception as e:
+        print(f"Error checking NWS API: {e}")
+        import traceback
+
+        traceback.print_exc()
+
+
+@check_rss_feed.before_loop
+async def before_check_rss():
+    """Wait until client is ready before starting the loop"""
+    await client.wait_until_ready()
+    print("Starting NWS alert checker...")
+
+
+async def mark_existing_alerts_as_posted():
+    """Mark all current NWS alerts as already posted to avoid spam on startup"""
+    global global_seen_pids
+    try:
+        async with aiohttp.ClientSession() as session:
+            alerts = await fetch_nws_alerts(session)
+
+        added_count = 0
+        for alert in alerts:
+            alert_id = alert.get("id", "")
+            if alert_id and alert_id not in global_seen_pids:
+                global_seen_pids.append(alert_id)
+                added_count += 1
+
+        print(
+            f"Marked {len(alerts)} existing alerts as already seen ({added_count} new)"
+        )
+        print(f"Global PIDs initialized: {len(global_seen_pids)}")
+        if added_count > 0:
+            save_config()
+    except Exception as e:
+        print(f"Error marking existing alerts: {e}")
+
+
+@tasks.loop(minutes=1)
+async def update_whatsnext_messages():
+    """Update all what's next messages with fresh schedule data"""
+    if not whatsnext_messages:
+        return
+
+    # Create list of messages to remove if they fail
+    messages_to_remove = []
+
+    for (guild_id, channel_id), message_id in list(whatsnext_messages.items()):
+        try:
+            channel = client.get_channel(channel_id)
+            if not channel:
+                messages_to_remove.append((guild_id, channel_id))
+                continue
+
+            # Try to fetch the message
+            try:
+                message = await channel.fetch_message(message_id)
+            except discord.NotFound:
+                messages_to_remove.append((guild_id, channel_id))
+                continue
+            except discord.Forbidden:
+                messages_to_remove.append((guild_id, channel_id))
+                continue
+
+            # Update the message with new embed
+            new_embed = create_whatsnext_embed()
+            await message.edit(embed=new_embed)
+
+        except Exception as e:
+            print(
+                f"Error updating what's next message for guild {guild_id}, channel {channel_id}: {e}"
+            )
+            messages_to_remove.append((guild_id, channel_id))
+
+    # Remove failed messages from tracking
+    for key in messages_to_remove:
+        if key in whatsnext_messages:
+            del whatsnext_messages[key]
+            print(
+                f"Removed what's next message for guild {key[0]}, channel {key[1]} (not found or inaccessible)"
+            )
+
+    # Save config if we removed any messages
+    if messages_to_remove:
+        save_config()
+
+
+@update_whatsnext_messages.before_loop
+async def before_update_whatsnext():
+    await client.wait_until_ready()
+
+
+@tasks.loop(minutes=1)
+async def update_utc_status():
+    now_utc = datetime.now(timezone.utc).strftime("%H:%M UTC")
+    activity = discord.Activity(
+        type=discord.ActivityType.watching,
+        name=f"{now_utc}",
+    )
+    await client.change_presence(activity=activity)
+
+
+@update_utc_status.before_loop
+async def before_update_utc_status():
+    await client.wait_until_ready()
+
 
 # Events
 @client.event
 async def on_ready() -> None:
-    activity = discord.Activity(type=discord.ActivityType.listening, name="/help")
-    await client.change_presence(activity=activity)
+    # Load saved configurations
+    load_config()
+
     await client.tree.sync()
     print(f"Logged in as {client.user}")
+    print(f"Monitoring NWS API for active alerts")
+    print(f"Configured for {len(guild_channels)} guilds")
+
+    # Mark existing alerts to avoid spam on startup
+    await mark_existing_alerts_as_posted()
+
+    check_rss_feed.start()
+    update_utc_status.start()
+    update_whatsnext_messages.start()
+
+
+@client.event
+async def on_guild_remove(guild):
+    """Clean up when bot is removed from a guild"""
+    global guild_channels, whatsnext_messages
+    if guild.id in guild_channels:
+        del guild_channels[guild.id]
+        if guild.id in posted_items:
+            del posted_items[guild.id]
+
+        # Remove any what's next messages for this guild
+        messages_to_remove = [
+            (g_id, c_id)
+            for (g_id, c_id) in whatsnext_messages.keys()
+            if g_id == guild.id
+        ]
+        for key in messages_to_remove:
+            if key in whatsnext_messages:
+                del whatsnext_messages[key]
+
+        save_config()
+        print(
+            f"Removed configuration for guild {guild.id} ({guild.name}) including {len(messages_to_remove)} what's next messages"
+        )
 
 
 model_dict = {
@@ -66,16 +625,51 @@ validD1TimeRanges = ["f01-23", "f02-23", "f02-17", "f01-17", "f12-35"]
 )
 async def help_slash(interaction: discord.Interaction):
     embed = discord.Embed(
-        title="Help",
+        title="Weather Alert Bot Help",
         description="List of available slash commands:",
         color=discord.Color.blurple(),
     )
-    for cmd in client.tree.get_commands():
+
+    # Group commands by category
+    categories = {
+        "Alert Channel Configuration": [
+            "setchannel",
+            "setwinterchannel",
+            "setseverechannel",
+            "settornadocommand",
+            "currentalertchannels",
+            "currentchannel",
+            "removechannel",
+        ],
+        "Weather Information": [
+            "getoffice",
+            "getutc",
+            "getoutlook",
+            "fetch",
+            "whatsnext",
+        ],
+        "Utility": ["help"],
+    }
+
+    all_commands = {
+        cmd.name: cmd.description or "No description."
+        for cmd in client.tree.get_commands()
+    }
+
+    for category, command_names in categories.items():
         embed.add_field(
-            name=f"/{cmd.name}",
-            value=cmd.description or "No description.",
+            name=f"📋 {category}",
+            value="\n".join(
+                f"**/{name}** - {all_commands.get(name, 'No description.')}"
+                for name in command_names
+                if name in all_commands
+            ),
             inline=False,
         )
+
+    embed.set_footer(
+        text="Use /help to see this message again. All channel configuration and /whatsnext commands require administrator permissions."
+    )
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
@@ -102,6 +696,279 @@ async def on_app_command_error(interaction: discord.Interaction, error):
         )
 
 
+# Commands
+@client.tree.command(
+    name="setchannel",
+    description="Set the channel for weather alerts (for all alert types)",
+)
+@app_commands.describe(channel="The channel to send alerts to")
+@app_commands.default_permissions(administrator=True)
+async def set_channel(interaction: discord.Interaction, channel: discord.TextChannel):
+    global guild_channels
+
+    guild_id = interaction.guild_id
+
+    # Initialize guild config if not exists
+    if guild_id not in guild_channels:
+        guild_channels[guild_id] = {}
+
+    # Set all alert types to this channel
+    guild_channels[guild_id] = {
+        "winter": channel.id,
+        "severe": channel.id,
+        "tornado": channel.id,
+        "sws": channel.id,
+    }
+
+    # Initialize posted_items for this guild if needed
+    if guild_id not in posted_items:
+        posted_items[guild_id] = set()
+
+    save_config()
+
+    await interaction.response.send_message(
+        f"All weather alerts will now be posted to {channel.mention} in this server.",
+        ephemeral=True,
+    )
+    print(
+        f"All channels set for guild {guild_id} ({interaction.guild.name}): {channel.name} (ID: {channel.id})"
+    )
+
+
+@client.tree.command(
+    name="setwinterchannel", description="Set the channel for winter storm alerts"
+)
+@app_commands.describe(channel="The channel to send winter alerts too")
+@app_commands.default_permissions(administrator=True)
+async def set_winter_channel(
+    interaction: discord.Interaction, channel: discord.TextChannel
+):
+    global guild_channels
+
+    guild_id = interaction.guild_id
+
+    # Initialize guild config if not exists
+    if guild_id not in guild_channels:
+        guild_channels[guild_id] = {}
+
+    guild_channels[guild_id]["winter"] = channel.id
+
+    # Initialize posted_items for this guild if needed
+    if guild_id not in posted_items:
+        posted_items[guild_id] = set()
+
+    save_config()
+
+    await interaction.response.send_message(
+        f"Winter weather alerts will now be posted to {channel.mention} in this server.",
+        ephemeral=True,
+    )
+    print(
+        f"Winter channel set for guild {guild_id} ({interaction.guild.name}): {channel.name} (ID: {channel.id})"
+    )
+
+
+@client.tree.command(name="setswschannel", description="Set the channel for sws alerts")
+@app_commands.describe(channel="The channel to send sws alerts too")
+@app_commands.default_permissions(administrator=True)
+async def set_sws_channel(
+    interaction: discord.Interaction, channel: discord.TextChannel
+):
+    global guild_channels
+
+    guild_id = interaction.guild_id
+
+    # Initialize guild config if not exists
+    if guild_id not in guild_channels:
+        guild_channels[guild_id] = {}
+
+    guild_channels[guild_id]["sws"] = channel.id
+
+    # Initialize posted_items for this guild if needed
+    if guild_id not in posted_items:
+        posted_items[guild_id] = set()
+
+    save_config()
+
+    await interaction.response.send_message(
+        f"Sws alerts will now be posted to {channel.mention} in this server.",
+        ephemeral=True,
+    )
+    print(
+        f"Sws channel set for guild {guild_id} ({interaction.guild.name}): {channel.name} (ID: {channel.id})"
+    )
+
+
+@client.tree.command(
+    name="setseverechannel",
+    description="Set the channel for severe thunderstorm alerts",
+)
+@app_commands.describe(channel="The channel to send severe thunderstorm alerts to")
+@app_commands.default_permissions(administrator=True)
+async def set_severe_channel(
+    interaction: discord.Interaction, channel: discord.TextChannel
+):
+    global guild_channels
+
+    guild_id = interaction.guild_id
+
+    # Initialize guild config if not exists
+    if guild_id not in guild_channels:
+        guild_channels[guild_id] = {}
+
+    guild_channels[guild_id]["severe"] = channel.id
+
+    # Initialize posted_items for this guild if needed
+    if guild_id not in posted_items:
+        posted_items[guild_id] = set()
+
+    save_config()
+
+    await interaction.response.send_message(
+        f"Severe thunderstorm alerts will now be posted to {channel.mention} in this server.",
+        ephemeral=True,
+    )
+    print(
+        f"Severe channel set for guild {guild_id} ({interaction.guild.name}): {channel.name} (ID: {channel.id})"
+    )
+
+
+@client.tree.command(
+    name="settornadocommand", description="Set the channel for tornado alerts"
+)
+@app_commands.describe(channel="The channel to send tornado alerts to")
+@app_commands.default_permissions(administrator=True)
+async def set_tornado_channel(
+    interaction: discord.Interaction, channel: discord.TextChannel
+):
+    global guild_channels
+
+    guild_id = interaction.guild_id
+
+    # Initialize guild config if not exists
+    if guild_id not in guild_channels:
+        guild_channels[guild_id] = {}
+
+    guild_channels[guild_id]["tornado"] = channel.id
+
+    # Initialize posted_items for this guild if needed
+    if guild_id not in posted_items:
+        posted_items[guild_id] = set()
+
+    save_config()
+
+    await interaction.response.send_message(
+        f"Tornado alerts will now be posted to {channel.mention} in this server.",
+        ephemeral=True,
+    )
+    print(
+        f"Tornado channel set for guild {guild_id} ({interaction.guild.name}): {channel.name} (ID: {channel.id})"
+    )
+
+
+@client.tree.command(
+    name="currentalertchannels",
+    description="Show the current alert channels for all types",
+)
+@app_commands.default_permissions(administrator=True)
+async def current_alert_channels(interaction: discord.Interaction):
+    guild_id = interaction.guild_id
+
+    if guild_id not in guild_channels:
+        await interaction.response.send_message(
+            "No channels are currently set for this server. Use `/setwinterchannel`, `/setseverechannel`, `/setswschannel ` or `/settornadocommand` to set channels.",
+            ephemeral=True,
+        )
+        return
+
+    channels_config = guild_channels[guild_id]
+    embed = discord.Embed(
+        title="Current Alert Channels",
+        description="Configuration for weather alert channels in this server:",
+        color=discord.Color.blue(),
+    )
+
+    for alert_type, channel_id in channels_config.items():
+        channel = client.get_channel(channel_id)
+        if channel:
+            embed.add_field(
+                name=f"{alert_type.capitalize()} Alerts",
+                value=f"{channel.mention} (ID: {channel_id})",
+                inline=False,
+            )
+        else:
+            embed.add_field(
+                name=f"{alert_type.capitalize()} Alerts",
+                value=f"Channel ID {channel_id} not found (may have been deleted)",
+                inline=False,
+            )
+
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@client.tree.command(
+    name="currentchannel", description="Show the current alert channel (legacy command)"
+)
+@app_commands.default_permissions(administrator=True)
+async def current_channel(interaction: discord.Interaction):
+    guild_id = interaction.guild_id
+
+    if guild_id not in guild_channels:
+        await interaction.response.send_message(
+            "No channel is currently set for this server. Use `/setchannel` to set one.",
+            ephemeral=True,
+        )
+    else:
+        # For legacy compatibility, show the first configured channel
+        channels_config = guild_channels[guild_id]
+        first_channel_id = (
+            next(iter(channels_config.values())) if channels_config else None
+        )
+
+        if first_channel_id:
+            channel = client.get_channel(first_channel_id)
+            if channel:
+                await interaction.response.send_message(
+                    f"Current alert channel: {channel.mention} (Note: Use `/currentalertchannels` to see all configured channels)",
+                    ephemeral=True,
+                )
+            else:
+                await interaction.response.send_message(
+                    f"Channel ID {first_channel_id} is set but not found. It may have been deleted.",
+                    ephemeral=True,
+                )
+        else:
+            await interaction.response.send_message(
+                "No channels are configured. Use `/setwinterchannel`, `/setseverechannel`, or `/settornadocommand` to set channels.",
+                ephemeral=True,
+            )
+
+
+@client.tree.command(
+    name="removechannel",
+    description="Remove all weather alert channels from this server",
+)
+@app_commands.default_permissions(administrator=True)
+async def remove_channel(interaction: discord.Interaction):
+    global guild_channels
+    guild_id = interaction.guild_id
+
+    if guild_id in guild_channels:
+        del guild_channels[guild_id]
+        if guild_id in posted_items:
+            del posted_items[guild_id]
+        save_config()
+        await interaction.response.send_message(
+            "All weather alert channels have been disabled for this server.",
+            ephemeral=True,
+        )
+        print(f"Removed all channel configurations for guild {guild_id}")
+    else:
+        await interaction.response.send_message(
+            "No channels were configured for this server.", ephemeral=True
+        )
+
+
 @client.tree.command(
     name="getutc",
     description="Get the NWS forecast office for a location",
@@ -109,6 +976,105 @@ async def on_app_command_error(interaction: discord.Interaction, error):
 async def getUTC(interaction: discord.Interaction) -> None:
     utc_time = await getUTCTime()
     await interaction.response.send_message(utc_time.strftime("%H:%M %m-%d-%y"))
+
+
+@client.tree.command(
+    name="whatsnext",
+    description="Create/update live schedule message for model runs and SPC outlooks",
+)
+@app_commands.describe(action="Action to perform (start/stop/status)")
+@app_commands.choices(
+    action=[
+        app_commands.Choice(name="Start Live Schedule", value="start"),
+        app_commands.Choice(name="Stop Live Schedule", value="stop"),
+        app_commands.Choice(name="Show Status", value="status"),
+    ]
+)
+@app_commands.default_permissions(administrator=True)
+async def whatsnext(interaction: discord.Interaction, action: str = "start"):
+    global whatsnext_messages
+
+    guild_id = interaction.guild_id
+    channel_id = interaction.channel.id
+
+    if action == "start":
+        # Check if there's already a message in this channel
+        if (guild_id, channel_id) in whatsnext_messages:
+            await interaction.response.send_message(
+                "There's already a live schedule message in this channel. Use `/whatsnext stop` to remove it first.",
+                ephemeral=True,
+            )
+            return
+
+        # Create the initial embed
+        initial_embed = create_whatsnext_embed()
+
+        # Send the message
+        await interaction.response.send_message(embed=initial_embed)
+        message = await interaction.original_response()
+
+        # Store the message reference
+        whatsnext_messages[(guild_id, channel_id)] = message.id
+        save_config()
+
+        await interaction.followup.send(
+            "✅ Live schedule message created! It will update every minute with fresh countdowns.",
+            ephemeral=True,
+        )
+        print(
+            f"Created what's next message for guild {guild_id}, channel {channel_id}, message {message.id}"
+        )
+
+    elif action == "stop":
+        if (guild_id, channel_id) not in whatsnext_messages:
+            await interaction.response.send_message(
+                "No live schedule message found in this channel.", ephemeral=True
+            )
+            return
+
+        # Remove from tracking
+        message_id = whatsnext_messages[(guild_id, channel_id)]
+        del whatsnext_messages[(guild_id, channel_id)]
+        save_config()
+
+        await interaction.response.send_message(
+            "✅ Live schedule updates stopped. The message will no longer be updated.",
+            ephemeral=True,
+        )
+        print(
+            f"Stopped what's next message for guild {guild_id}, channel {channel_id}, message {message_id}"
+        )
+
+    elif action == "status":
+        active_in_guild = [
+            (g_id, c_id, msg_id)
+            for (g_id, c_id), msg_id in whatsnext_messages.items()
+            if g_id == guild_id
+        ]
+
+        if not active_in_guild:
+            await interaction.response.send_message(
+                "No active live schedule messages in this server.", ephemeral=True
+            )
+            return
+
+        embed = discord.Embed(
+            title="📊 Live Schedule Status",
+            description=f"Found {len(active_in_guild)} active message(s) in this server:",
+            color=discord.Color.green(),
+        )
+
+        for g_id, c_id, msg_id in active_in_guild:
+            channel = client.get_channel(c_id)
+            if channel:
+                embed.add_field(
+                    name=f"Channel: {channel.name}",
+                    value=f"Message ID: {msg_id}\nStatus: ✅ Active",
+                    inline=False,
+                )
+
+        embed.set_footer(text="Use /whatsnext stop to halt updates in any channel")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 @client.tree.command(

@@ -5,7 +5,11 @@ from datetime import datetime, time, timedelta, timezone
 from typing import List
 from urllib.parse import urljoin
 
-import pytz
+try:
+    import pytz
+except ImportError:
+    pytz = None
+
 import requests
 from bs4 import BeautifulSoup
 from discord import Embed, File
@@ -24,7 +28,6 @@ async def getUTCTime() -> datetime:
     utc_time = dt.replace(tzinfo=timezone.utc)
 
     return utc_time
-
 
 async def getNadoCastData(
     time: datetime, models: str, extra: str, doNotInclude: str
@@ -324,3 +327,230 @@ def create_formatted_table(data, headers):
     # Combine all parts
     table = f"{header_row}\n{separator}\n" + "\n".join(data_rows)
     return table
+
+
+def get_next_nadocast_runs():
+    """Get next NadoCast model runs within the next 24 hours"""
+    from datetime import datetime, timedelta, timezone
+    
+    now_utc = datetime.now(timezone.utc)
+    runs = []
+    
+    # NadoCast runs at 0z, 12z, 18z
+    nadocast_times = [0, 12, 18]
+    
+    for hour_offset in range(25):  # Check next 25 hours to find all runs
+        check_time = now_utc + timedelta(hours=hour_offset)
+        if check_time.hour in nadocast_times:
+            # Round to the exact hour
+            run_time = check_time.replace(minute=0, second=0, microsecond=0)
+            time_until = run_time - now_utc
+            
+            if time_until.total_seconds() > 0:  # Only future runs
+                runs.append({
+                    'time': run_time,
+                    'time_until_hours': time_until.total_seconds() / 3600,
+                    'run_hour': check_time.hour,
+                    'type': 'nadocast'
+                })
+    
+    return runs
+
+
+def get_next_spc_outlooks():
+    """Get next SPC outlook issuances within the next 24 hours"""
+    from datetime import datetime, timedelta, timezone
+    
+    now_utc = datetime.now(timezone.utc)
+    outlooks = []
+    
+    # Day 1 outlooks: 0600Z, 1300Z, 1630Z, 2000Z, 0100Z
+    day1_times = [(6, 0), (13, 0), (16, 30), (20, 0), (1, 0)]
+    
+    # Day 2 outlooks: 0100Z (1 AM CST/CDT), 1730Z  
+    day2_times = [(1, 0), (17, 30)]
+    
+    # Day 3 outlooks: 0830Z standard time, 0730Z daylight time
+    # We'll use 0800Z as an approximation since this changes with DST
+    day3_times = [(8, 0)]
+    
+    # Combine all outlook times with labels
+    all_outlooks = []
+    
+    for hour, minute in day1_times:
+        all_outlooks.append(('Day 1', hour, minute))
+    for hour, minute in day2_times:
+        all_outlooks.append(('Day 2', hour, minute))
+    for hour, minute in day3_times:
+        all_outlooks.append(('Day 3', hour, minute))
+    
+    for hour_offset in range(25):  # Check next 25 hours
+        check_time = now_utc + timedelta(hours=hour_offset)
+        
+        for day_type, outlook_hour, outlook_minute in all_outlooks:
+            # Check if current time matches outlook time (within 30 minutes)
+            if (check_time.hour == outlook_hour and 
+                abs(check_time.minute - outlook_minute) < 30):
+                
+                # Set to exact outlook time
+                run_time = check_time.replace(
+                    hour=outlook_hour, 
+                    minute=outlook_minute, 
+                    second=0, 
+                    microsecond=0
+                )
+                
+                time_until = run_time - now_utc
+                
+                if time_until.total_seconds() > 0:  # Only future outlooks
+                    outlooks.append({
+                        'type': 'spc',
+                        'day': day_type,
+                        'time': run_time,
+                        'time_until_hours': time_until.total_seconds() / 3600,
+                        'time_str': f"{run_time.hour:02d}:{run_time.minute:02d}Z"
+                    })
+    
+    # Sort by time
+    outlooks.sort(key=lambda x: x['time'])
+    
+    return outlooks
+
+
+def format_time_until(hours, use_discord_timestamp=True):
+    """Format time until an event in a readable way"""
+    from datetime import datetime, timezone, timedelta
+    
+    if hours < 0.0167:  # Less than 1 minute
+        return "now" if not use_discord_timestamp else f"<t:{int((datetime.now(timezone.utc) + timedelta(seconds=0)).timestamp())}:R>"
+    elif hours < 1:
+        minutes = int(hours * 60)
+        if use_discord_timestamp:
+            future_time = datetime.now(timezone.utc) + timedelta(minutes=minutes)
+            return f"<t:{int(future_time.timestamp())}:R>"
+        else:
+            return f"in {minutes}m"
+    elif hours < 24:
+        hours_int = int(hours)
+        minutes = int((hours % 1) * 60)
+        if use_discord_timestamp:
+            future_time = datetime.now(timezone.utc) + timedelta(hours=hours_int, minutes=minutes)
+            return f"<t:{int(future_time.timestamp())}:R>"
+        else:
+            if minutes > 0:
+                return f"in {hours_int}h {minutes}m"
+            else:
+                return f"in {hours_int}h"
+    else:
+        days = int(hours // 24)
+        remaining_hours = int(hours % 24)
+        if use_discord_timestamp:
+            future_time = datetime.now(timezone.utc) + timedelta(days=days, hours=remaining_hours)
+            return f"<t:{int(future_time.timestamp())}:R>"
+        else:
+            if remaining_hours > 0:
+                return f"in {days}d {remaining_hours}h"
+            else:
+                return f"in {days}d"
+
+
+def format_datetime_local(utc_dt):
+    """Format UTC datetime in local time"""
+    if pytz:
+        local_tz = datetime.now(pytz.UTC).astimezone().tzinfo
+        local_dt = utc_dt.astimezone(local_tz)
+        return local_dt.strftime("%I:%M %p %Z")
+    else:
+        # Fallback to system timezone if pytz not available
+        local_dt = utc_dt.replace(tzinfo=timezone.utc).astimezone()
+        return local_dt.strftime("%I:%M %p")
+
+
+def get_event_status(time_until_hours, is_next=False):
+    """Get status indicator and color for an event"""
+    if time_until_hours < 0:
+        return {"status": "✅ DONE", "color": "⚫"}
+    elif time_until_hours < 0.0167:  # Less than 1 minute
+        return {"status": "🔴 NOW", "color": "🔴"}
+    elif is_next:
+        return {"status": "🔴 NEXT", "color": "🔴"}
+    else:
+        return {"status": "⏭️ THEN", "color": "⏭️"}
+
+
+def create_whatsnext_embed():
+    """Create comprehensive 'What's Next' embed"""
+    from datetime import datetime, timezone
+    import discord
+    
+    now_utc = datetime.now(timezone.utc)
+    
+    # Get all upcoming events
+    nadocast_runs = get_next_nadocast_runs()
+    spc_outlooks = get_next_spc_outlooks()
+    
+    # Combine and sort all events
+    all_events = nadocast_runs + spc_outlooks
+    all_events.sort(key=lambda x: x['time_until_hours'])
+    
+    # Filter events within 24 hours
+    future_events = [e for e in all_events if 0 <= e['time_until_hours'] <= 24]
+    
+    embed = discord.Embed(
+        title="⏰ What's Next - Live Schedule",
+        color=discord.Color.blue(),
+        timestamp=now_utc
+    )
+    
+    # Build embed content
+    content_lines = []
+    
+    # NadoCast Section
+    nadocast_events = [e for e in future_events if e['type'] == 'nadocast']
+    content_lines.append("**🤖 NadoCast Model Runs**")
+    content_lines.append("━━━━━━━━━━━━━━━━━━━━━")
+    
+    for i, event in enumerate(nadocast_events):
+        status_info = get_event_status(event['time_until_hours'], is_next=(i == 0 and event['time_until_hours'] > 0))
+        local_time = format_datetime_local(event['time'])
+        
+        line = f"{status_info['color']} {event['run_hour']}z Run - {format_time_until(event['time_until_hours'])} ({local_time})"
+        content_lines.append(line)
+    
+    if not nadocast_events:
+        content_lines.append("❌ No runs scheduled in next 24 hours")
+    
+    content_lines.append("")  # Empty line
+    
+    # SPC Outlooks Section
+    spc_events = [e for e in future_events if e['type'] == 'spc']
+    content_lines.append("**🌪️ SPC Outlooks**")
+    content_lines.append("━━━━━━━━━━━━━━━━━━━━━")
+    
+    # Group by day
+    day_groups = {}
+    for event in spc_events:
+        day = event['day']
+        if day not in day_groups:
+            day_groups[day] = []
+        day_groups[day].append(event)
+    
+    for day in ['Day 1', 'Day 2', 'Day 3']:
+        if day in day_groups:
+            content_lines.append(f"**{day}**")
+            for event in day_groups[day]:
+                status_info = get_event_status(event['time_until_hours'], 
+                                          is_next=(len(nadocast_events) == 0 and len(day_groups[day]) == 1))
+                local_time = format_datetime_local(event['time'])
+                
+                line = f"{status_info['color']} {event['time_str']} ({local_time}) - {format_time_until(event['time_until_hours'])}"
+                content_lines.append(line)
+    
+    if not spc_events:
+        content_lines.append("❌ No outlooks scheduled in next 24 hours")
+    
+    # Set embed description
+    embed.description = "\n".join(content_lines)
+    embed.set_footer(text="Updates every minute • Times show as relative in Discord • Use /whatsnext stop to halt updates")
+    
+    return embed

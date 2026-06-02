@@ -124,6 +124,8 @@ celerybeat.pid
 # Environments
 .env
 .venv
+/.venv
+.venv/
 env/
 venv/
 ENV/
@@ -167,3 +169,5 @@ Nadocast
 # Logs wrote by us
 logs/
 *.png
+systemctlstart.sh
+systemctlstop.sh
