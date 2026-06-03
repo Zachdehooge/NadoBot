@@ -169,5 +169,7 @@ Nadocast
 # Logs wrote by us
 logs/
 *.png
-systemctlstart.sh
-systemctlstop.sh
+./systemctlstart.sh
+./systemctlstop.sh
+./DockerStart.sh
+/prodenv/

@@ -1,0 +1,1 @@
+docker run -d --env-file ~/coding/discord_bots/NadoBot/prodenv/.env --restart unless-stopped zachdehooge/nadobot:latest
