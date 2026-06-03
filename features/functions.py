@@ -19,7 +19,7 @@ load_dotenv()
 APIKEY = os.getenv("APIKEY")
 
 
-cooldowns = {"fetch": {"last_used": 0, "cooldown": 30}}
+cooldowns = {"fetch": {"last_used": 0, "cooldown": 15}}
 
 
 async def getUTCTime() -> datetime:
@@ -57,8 +57,6 @@ async def getNadoCastData(
 
     # Folder Structure, and create the folder if it doesn't exist, but if it does, return the already downloaded images
     folder_location = f"Nadocast_{timeNow}"
-
-    # Get the html text from the url
 
     if os.path.exists(folder_location):
         if os.listdir(folder_location) != []:

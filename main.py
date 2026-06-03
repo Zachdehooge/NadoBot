@@ -530,7 +530,7 @@ async def before_update_whatsnext():
     await client.wait_until_ready()
 
 
-@tasks.loop(minutes=1)
+@tasks.loop(seconds=15)
 async def update_utc_status():
     now_utc = datetime.now(timezone.utc).strftime("%H:%M UTC")
     activity = discord.Activity(
@@ -990,92 +990,6 @@ async def getUTC(interaction: discord.Interaction) -> None:
         app_commands.Choice(name="Show Status", value="status"),
     ]
 )
-@app_commands.default_permissions(administrator=True)
-async def whatsnext(interaction: discord.Interaction, action: str = "start"):
-    global whatsnext_messages
-
-    guild_id = interaction.guild_id
-    channel_id = interaction.channel.id
-
-    if action == "start":
-        # Check if there's already a message in this channel
-        if (guild_id, channel_id) in whatsnext_messages:
-            await interaction.response.send_message(
-                "There's already a live schedule message in this channel. Use `/whatsnext stop` to remove it first.",
-                ephemeral=True,
-            )
-            return
-
-        # Create the initial embed
-        initial_embed = create_whatsnext_embed()
-
-        # Send the message
-        await interaction.response.send_message(embed=initial_embed)
-        message = await interaction.original_response()
-
-        # Store the message reference
-        whatsnext_messages[(guild_id, channel_id)] = message.id
-        save_config()
-
-        await interaction.followup.send(
-            "✅ Live schedule message created! It will update every minute with fresh countdowns.",
-            ephemeral=True,
-        )
-        print(
-            f"Created what's next message for guild {guild_id}, channel {channel_id}, message {message.id}"
-        )
-
-    elif action == "stop":
-        if (guild_id, channel_id) not in whatsnext_messages:
-            await interaction.response.send_message(
-                "No live schedule message found in this channel.", ephemeral=True
-            )
-            return
-
-        # Remove from tracking
-        message_id = whatsnext_messages[(guild_id, channel_id)]
-        del whatsnext_messages[(guild_id, channel_id)]
-        save_config()
-
-        await interaction.response.send_message(
-            "✅ Live schedule updates stopped. The message will no longer be updated.",
-            ephemeral=True,
-        )
-        print(
-            f"Stopped what's next message for guild {guild_id}, channel {channel_id}, message {message_id}"
-        )
-
-    elif action == "status":
-        active_in_guild = [
-            (g_id, c_id, msg_id)
-            for (g_id, c_id), msg_id in whatsnext_messages.items()
-            if g_id == guild_id
-        ]
-
-        if not active_in_guild:
-            await interaction.response.send_message(
-                "No active live schedule messages in this server.", ephemeral=True
-            )
-            return
-
-        embed = discord.Embed(
-            title="📊 Live Schedule Status",
-            description=f"Found {len(active_in_guild)} active message(s) in this server:",
-            color=discord.Color.green(),
-        )
-
-        for g_id, c_id, msg_id in active_in_guild:
-            channel = client.get_channel(c_id)
-            if channel:
-                embed.add_field(
-                    name=f"Channel: {channel.name}",
-                    value=f"Message ID: {msg_id}\nStatus: ✅ Active",
-                    inline=False,
-                )
-
-        embed.set_footer(text="Use /whatsnext stop to halt updates in any channel")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-
 
 @client.tree.command(
     name="getoutlook",
