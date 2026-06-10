@@ -6,7 +6,7 @@ from datetime import date
 import aiohttp
 import discord
 from dateutil import parser
-from discord import app_commands
+from discord import Color, app_commands
 from discord.app_commands import checks, CommandOnCooldown
 from discord.ext import commands, tasks
 from urllib.parse import urlparse, parse_qs
@@ -326,9 +326,9 @@ async def check_rss_feed():
             title = alert.get("headline", "") or alert.get("event", "")
             description = alert.get("description", "")[:500]
             area_desc = alert.get("areaDesc", "Unknown")
-            severity = alert.get("severity", "Unknown")
-            urgency = alert.get("urgency", "Unknown")
-            certainty = alert.get("certainty", "Unknown")
+            # severity = alert.get("severity", "Unknown")
+            # urgency = alert.get("urgency", "Unknown")
+            # certainty = alert.get("certainty", "Unknown")
             sent = alert.get("sent", "")
             expires = alert.get("expires", "")
             expires_timestamp = int(parser.parse(expires).timestamp()) if expires else 0
@@ -389,11 +389,13 @@ async def check_rss_feed():
                 try:
                     embed = discord.Embed(
                         title=f"⚠️ {event}",
-                        description=f"**Area:** {area_desc}\n**Severity:** {severity}\n**Urgency:** {urgency}\n**Certainty:** {certainty}\n\n{description}...",
+                        description=f"**Area:** {area_desc}\n\n{description}...",
                         color=(
-                            discord.Color.red()
+                            discord.Color.purple()
+                            if "confirmed" in description.lower() or "destructive" in description.lower() or "Damaging" in description.lower() or "observed" in description.lower()
+                            else discord.Color.red()
                             if "warning" in event.lower()
-                            else discord.Color.orange()
+                            else discord.Color.blue()
                         ),
                         url=link,
                         timestamp=parser.parse(expires) if expires else None,
